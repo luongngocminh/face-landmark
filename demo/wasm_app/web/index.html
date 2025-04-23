@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Landmark Detection Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .video-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        #video, #overlay {
+            width: 640px;
+            height: 480px;
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+        }
+        .status {
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .threading-info {
+            font-size: 14px;
+            color: #555;
+            margin-bottom: 20px;
+        }
+        .switch-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin-right: 10px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #2196F3;
+        }
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+    </style>
+    <script>
+        // Global placeholder for the callback that will be properly defined in app.js
+        window._landmarkDetectionComplete = function(promiseId, landmarksPtr, numPoints) {
+            console.log("Landmark detection placeholder called - this should be replaced by app.js implementation");
+        };
+        
+        // Also define the function that will hold the module
+        var Module = {
+            onLandmarkDetectionComplete: function(promiseId, landmarksPtr, numPoints) {
+                // This will be overridden in app.js
+                if (window._landmarkDetectionComplete) {
+                    window._landmarkDetectionComplete(promiseId, landmarksPtr, numPoints);
+                }
+            }
+        };
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Face Landmark Detection Demo</h1>
+        
+        <div class="status" id="status">
+            Status: Loading WASM module...
+        </div>
+        
+        <div class="threading-info" id="threading-info">
+            Checking threading support...
+        </div>
+        
+        <div class="switch-container">
+            <label class="switch">
+                <input type="checkbox" id="asyncSwitch" checked>
+                <span class="slider"></span>
+            </label>
+            <span>Use Asynchronous Processing</span>
+        </div>
+        
+        <div class="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="detectBtn" disabled>Detect Landmarks</button>
+            <button id="continuousBtn" disabled>Continuous Detection</button>
+            <button id="stopBtn" disabled>Stop Camera</button>
+        </div>
+        
+        <div>
+            <p><strong>Instructions:</strong></p>
+            <ol>
+                <li>Click "Start Camera" to enable your webcam</li>
+                <li>Click "Detect Landmarks" to process a single frame</li>
+                <li>Click "Continuous Detection" to process frames continuously</li>
+                <li>Toggle the switch to use asynchronous (threaded) processing</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- Load the WASM module (models are preloaded) -->
+    <script src="custom_face_landmark_wasm.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

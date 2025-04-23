@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Detection Model Input Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .debug-views {
+            display: flex;
+            width: 100%;
+            margin: 20px 0;
+        }
+        .view {
+            flex: 1;
+            margin: 0 10px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .video-container, .processed-container {
+            position: relative;
+        }
+        video, canvas {
+            width: 100%;
+            height: auto;
+            max-width: 500px;
+            display: block;
+            margin: 0 auto;
+        }
+        .controls {
+            margin: 20px 0;
+            text-align: center;
+        }
+        button {
+            padding: 8px 16px;
+            margin: 0 5px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .results {
+            width: 100%;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .histogram-canvas {
+            max-width: 500px;
+            height: 150px;
+            margin: 10px auto;
+            display: block;
+        }
+        h3 {
+            text-align: center;
+            margin-top: 5px;
+        }
+        .settings {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .settings-group {
+            flex: 1;
+            margin: 0 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        label {
+            display: block;
+            margin: 8px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Face Detection Model Input Debug</h1>
+        
+        <div class="status" id="status">Status: Waiting for WASM module to load...</div>
+        
+        <div class="settings">
+            <div class="settings-group">
+                <h3>Camera Settings</h3>
+                <label>
+                    Resolution:
+                    <select id="resolutionSelect">
+                        <option value="320x240">320x240</option>
+                        <option value="640x480" selected>640x480</option>
+                        <option value="1280x720">1280x720 (HD)</option>
+                    </select>
+                </label>
+                <label>
+                    <input type="checkbox" id="mirrorVideo" checked>
+                    Mirror video
+                </label>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Debug Settings</h3>
+                <label>
+                    <input type="checkbox" id="showHistogram" checked>
+                    Show image histograms
+                </label>
+                <label>
+                    <input type="checkbox" id="showPreprocessingSteps">
+                    Show all preprocessing steps
+                </label>
+            </div>
+        </div>
+        
+        <div class="debug-views">
+            <div class="view">
+                <h3>Camera Input</h3>
+                <div class="video-container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="inputOverlay"></canvas>
+                </div>
+                <canvas id="inputHistogram" class="histogram-canvas"></canvas>
+            </div>
+            
+            <div class="view">
+                <h3>Model Input (Preprocessed)</h3>
+                <div class="processed-container">
+                    <canvas id="processedView"></canvas>
+                    <canvas id="processedOverlay"></canvas>
+                </div>
+                <canvas id="processedHistogram" class="histogram-canvas"></canvas>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="captureBtn" disabled>Capture Frame</button>
+            <button id="continuousBtn" disabled>Start Continuous</button>
+            <button id="saveBtn" disabled>Save Debug Info</button>
+        </div>
+        
+        <div class="results" id="results">Debug information will appear here...</div>
+    </div>
+    
+    <script src="custom_face_landmark_wasm.js"></script>
+    <script>
+        let wasmModule = null;
+        let video = null;
+        let inputCanvas = null;
+        let inputCtx = null;
+        let processedCanvas = null;
+        let processedCtx = null;
+        let inputHistCanvas = null;
+        let inputHistCtx = null;
+        let processedHistCanvas = null;
+        let processedHistCtx = null;
+        let continuousMode = false;
+        let animationId = null;
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize UI elements
+            const statusElement = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            const captureBtn = document.getElementById('captureBtn');
+            const continuousBtn = document.getElementById('continuousBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            const resultsElement = document.getElementById('results');
+            
+            video = document.getElementById('video');
+            inputCanvas = document.getElementById('inputOverlay');
+            inputCtx = inputCanvas.getContext('2d');
+            processedCanvas = document.getElementById('processedView');
+            processedCtx = processedCanvas.getContext('2d');
+            inputHistCanvas = document.getElementById('inputHistogram');
+            inputHistCtx = inputHistCanvas.getContext('2d');
+            processedHistCanvas = document.getElementById('processedHistogram');
+            processedHistCtx = processedHistCanvas.getContext('2d');
+            
+            // Set initial dimensions
+            updateCanvasDimensions('640x480');
+            
+            // Load WASM module
+            FaceLandmarkModule().then(module => {
+                wasmModule = module;
+                statusElement.textContent = 'Status: WASM module loaded. Initializing...';
+                
+                // Initialize the detector
+                const initSuccess = wasmModule.ccall('initialize', 'number', [], []);
+                if (initSuccess) {
+                    // Load models
+                    const modelLoadSuccess = wasmModule.ccall('loadModel', 'number', ['string'], ['/models']);
+                    if (modelLoadSuccess) {
+                        statusElement.textContent = 'Status: Ready. Start camera to begin.';
+                        // Get model parameters
+                        const paramsPtr = wasmModule.ccall('getModelParameters', 'number', [], []);
+                        if (paramsPtr) {
+                            const paramsStr = wasmModule.UTF8ToString(paramsPtr);
+                            resultsElement.textContent = `Model Parameters:\n${paramsStr}`;
+                            wasmModule._free(paramsPtr);
+                        }
+                    } else {
+                        statusElement.textContent = 'Status: Failed to load models.';
+                    }
+                } else {
+                    statusElement.textContent = 'Status: Failed to initialize detector.';
+                }
+            }).catch(err => {
+                console.error('Failed to load WASM module:', err);
+                statusElement.textContent = 'Status: Failed to load WASM module.';
+            });
+            
+            // Event Listeners
+            startBtn.addEventListener('click', startCamera);
+            captureBtn.addEventListener('click', captureFrame);
+            continuousBtn.addEventListener('click', toggleContinuousMode);
+            saveBtn.addEventListener('click', saveDebugInfo);
+            
+            // Resolution change
+            document.getElementById('resolutionSelect').addEventListener('change', (e) => {
+                updateCanvasDimensions(e.target.value);
+                if (video.srcObject) {
+                    // Restart camera with new resolution
+                    const tracks = video.srcObject.getTracks();
+                    tracks.forEach(track => track.stop());
+                    startCamera();
+                }
+            });
+        });
+        
+        function updateCanvasDimensions(resolution) {
+            const [width, height] = resolution.split('x').map(Number);
+            
+            // Update video size attributes
+            video.width = width;
+            video.height = height;
+            
+            // Update canvas dimensions
+            inputCanvas.width = width;
+            inputCanvas.height = height;
+            processedCanvas.width = width;
+            processedCanvas.height = height;
+            
+            // Update histogram canvases
+            inputHistCanvas.width = 256;
+            inputHistCanvas.height = 150;
+            processedHistCanvas.width = 256;
+            processedHistCanvas.height = 150;
+        }
+        
+        function startCamera() {
+            if (!wasmModule) {
+                alert('WASM module not loaded yet.');
+                return;
+            }
+            
+            const resolution = document.getElementById('resolutionSelect').value;
+            const [width, height] = resolution.split('x').map(Number);
+            
+            const constraints = {
+                video: {
+                    width: { ideal: width },
+                    height: { ideal: height }
+                }
+            };
+            
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    video.srcObject = stream;
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('captureBtn').disabled = false;
+                    document.getElementById('continuousBtn').disabled = false;
+                    document.getElementById('saveBtn').disabled = false;
+                    document.getElementById('status').textContent = 'Status: Camera started. Capture a frame or start continuous mode.';
+                })
+                .catch(err => {
+                    console.error('Error accessing camera:', err);
+                    document.getElementById('status').textContent = 'Status: Failed to access camera.';
+                });
+        }
+        
+        function captureFrame() {
+            if (!video.srcObject) return;
+            
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = 'Status: Processing frame...';
+            
+            processFrame();
+        }
+        
+        function toggleContinuousMode() {
+            continuousMode = !continuousMode;
+            const btn = document.getElementById('continuousBtn');
+            
+            if (continuousMode) {
+                btn.textContent = 'Stop Continuous';
+                document.getElementById('captureBtn').disabled = true;
+                processContinuously();
+            } else {
+                btn.textContent = 'Start Continuous';
+                document.getElementById('captureBtn').disabled = false;
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+            }
+        }
+        
+        function processContinuously() {
+            if (!continuousMode) return;
+            
+            processFrame();
+            animationId = requestAnimationFrame(processContinuously);
+        }
+        
+        function processFrame() {
+            // Create a temporary canvas to capture the video frame
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Mirror the video if needed
+            if (document.getElementById('mirrorVideo').checked) {
+                tempCtx.translate(tempCanvas.width, 0);
+                tempCtx.scale(-1, 1);
+            }
+            
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Draw the original frame on input canvas
+            inputCtx.clearRect(0, 0, inputCanvas.width, inputCanvas.height);
+            inputCtx.drawImage(tempCanvas, 0, 0, inputCanvas.width, inputCanvas.height);
+            
+            // Get image data
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Calculate histogram for the input image
+            if (document.getElementById('showHistogram').checked) {
+                drawHistogram(imageData, inputHistCtx, 'rgb');
+            }
+            
+            // Allocate memory for image data in WASM
+            const imageDataPtr = wasmModule._malloc(imageData.data.length);
+            wasmModule.HEAPU8.set(imageData.data, imageDataPtr);
+            
+            // Get preprocessed image for debugging
+            const outWidthPtr = wasmModule._malloc(4);
+            const outHeightPtr = wasmModule._malloc(4);
+            
+            const preprocessedPtr = wasmModule.ccall(
+                'getDebugPreprocessedImage',
+                'number',
+                ['number', 'number', 'number', 'number', 'number'],
+                [imageDataPtr, tempCanvas.width, tempCanvas.height, outWidthPtr, outHeightPtr]
+            );
+            
+            if (preprocessedPtr) {
+                const metadataLengthPtr = preprocessedPtr;
+                const metadataLength = wasmModule.getValue(metadataLengthPtr, 'i32');
+                
+                // Read metadata JSON string
+                let metadataStr = '';
+                for (let i = 0; i < metadataLength-1; i++) {
+                    metadataStr += String.fromCharCode(wasmModule.HEAPU8[metadataLengthPtr + 4 + i]);
+                }
+                
+                try {
+                    const metadata = JSON.parse(metadataStr);
+                    console.log("Preprocessing metadata:", metadata);
+                    
+                    // Calculate positions in the buffer
+                    let currentPos = 4 + metadataLength;
+                    
+                    // Read original image dimensions and skip that data
+                    const origW = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    const origH = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    currentPos += origW * origH * 3;
+                    
+                    // Read resized image dimensions
+                    const resizedW = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    const resizedH = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    currentPos += resizedW * resizedH * 3;
+                    
+                    // Read padded image dimensions
+                    const paddedW = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    const paddedH = wasmModule.getValue(metadataLengthPtr + currentPos, 'i32');
+                    currentPos += 4;
+                    
+                    // Create ImageData for the padded image (RGB format)
+                    const procImageData = processedCtx.createImageData(paddedW, paddedH);
+                    const data = procImageData.data;
+                    
+                    // Convert RGB to RGBA using proper pixel indexing
+                    for (let y = 0; y < paddedH; y++) {
+                        for (let x = 0; x < paddedW; x++) {
+                            // Calculate source index (RGB)
+                            const srcIdx = currentPos + (y * paddedW + x) * 3;
+                            
+                            // Calculate destination index (RGBA)
+                            const dstIdx = (y * paddedW + x) * 4;
+                            
+                            // Set RGB values - using HEAPU8 for unsigned byte access
+                            data[dstIdx] = wasmModule.HEAPU8[metadataLengthPtr + srcIdx]; // R
+                            data[dstIdx + 1] = wasmModule.HEAPU8[metadataLengthPtr + srcIdx + 1]; // G
+                            data[dstIdx + 2] = wasmModule.HEAPU8[metadataLengthPtr + srcIdx + 2]; // B
+                            data[dstIdx + 3] = 255; // A (fully opaque)
+                        }
+                    }
+                    
+                    // Create an offscreen canvas to draw the preprocessed image
+                    const offscreenCanvas = document.createElement('canvas');
+                    offscreenCanvas.width = paddedW;
+                    offscreenCanvas.height = paddedH;
+                    const offscreenCtx = offscreenCanvas.getContext('2d');
+                    offscreenCtx.putImageData(procImageData, 0, 0);
+                    
+                    // Draw on the main processed canvas
+                    processedCtx.clearRect(0, 0, processedCanvas.width, processedCanvas.height);
+                    processedCtx.drawImage(offscreenCanvas, 0, 0, processedCanvas.width, processedCanvas.height);
+                    
+                    // Calculate histogram for the processed image
+                    if (document.getElementById('showHistogram').checked) {
+                        drawHistogram(procImageData, processedHistCtx, 'rgb');
+                    }
+                    
+                    // Show preprocessing details
+                    if (document.getElementById('showPreprocessingSteps').checked) {
+                        // Draw steps thumbnails
+                        const stepsCanvas = document.createElement('canvas');
+                        stepsCanvas.width = processedCanvas.width;
+                        stepsCanvas.height = 150;
+                        const stepsCtx = stepsCanvas.getContext('2d');
+                        
+                        // Draw background
+                        stepsCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                        stepsCtx.fillRect(0, 0, stepsCanvas.width, stepsCanvas.height);
+                        
+                        // Draw title
+                        stepsCtx.fillStyle = '#000';
+                        stepsCtx.font = '14px Arial';
+                        stepsCtx.fillText('Preprocessing Steps', 10, 20);
+                        
+                        // Draw info about each step
+                        stepsCtx.font = '12px Arial';
+                        stepsCtx.fillText(`Original: ${origW}x${origH}`, 10, 40);
+                        stepsCtx.fillText(`Resized: ${resizedW}x${resizedH} (Scale: ${metadata.scale.toFixed(4)})`, 10, 60);
+                        stepsCtx.fillText(`Padded: ${paddedW}x${paddedH} (Padding: [${metadata.padding[0]},${metadata.padding[1]}])`, 10, 80);
+                        
+                        // Draw the steps canvas on the processed canvas
+                        processedCtx.drawImage(stepsCanvas, 0, processedCanvas.height - stepsCanvas.height);
+                    }
+                    
+                    // Update status with dimensions
+                    document.getElementById('status').textContent = 
+                        `Status: Original: ${tempCanvas.width}x${tempCanvas.height}, Processed: ${paddedW}x${paddedH}`;
+                    
+                    // Update debug info
+                    const resultsElement = document.getElementById('results');
+                    resultsElement.textContent = `Original dimensions: ${tempCanvas.width}x${tempCanvas.height}\n` +
+                        `Resized dimensions: ${resizedW}x${resizedH} (Scale: ${metadata.scale.toFixed(4)})\n` +
+                        `Padded dimensions: ${paddedW}x${paddedH} (Padding: [${metadata.padding[0]},${metadata.padding[1]}])\n` +
+                        `Time: ${new Date().toISOString()}`;
+                } catch (e) {
+                    console.error("Error processing metadata:", e);
+                }
+                
+                // Free memory
+                wasmModule.ccall('freeMemory', null, ['number'], [preprocessedPtr]);
+            }
+            
+            // Free memory
+            wasmModule._free(imageDataPtr);
+            wasmModule._free(outWidthPtr);
+            wasmModule._free(outHeightPtr);
+        }
+        
+        function drawHistogram(imageData, ctx, type = 'rgb') {
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            
+            // Calculate histograms
+            const histR = Array(256).fill(0);
+            const histG = Array(256).fill(0);
+            const histB = Array(256).fill(0);
+            
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                histR[data[i]]++;     // R
+                histG[data[i+1]]++;   // G
+                histB[data[i+2]]++;   // B
+            }
+            
+            // Find max value for scaling
+            const maxR = Math.max(...histR);
+            const maxG = Math.max(...histG);
+            const maxB = Math.max(...histB);
+            const maxCount = Math.max(maxR, maxG, maxB);
+            
+            // Scale factor for histogram
+            const scaleY = ctx.canvas.height / maxCount;
+            const barWidth = ctx.canvas.width / 256;
+            
+            // Draw histograms
+            ctx.lineWidth = 1;
+            
+            // Red histogram
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histR[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Green histogram
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histG[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Blue histogram
+            ctx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histB[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Draw axis
+            ctx.strokeStyle = '#000';
+            ctx.beginPath();
+            ctx.moveTo(0, ctx.canvas.height);
+            ctx.lineTo(ctx.canvas.width, ctx.canvas.height);
+            ctx.stroke();
+        }
+        
+        function saveDebugInfo() {
+            // Capture current state
+            const debugInfo = {
+                timestamp: new Date().toISOString(),
+                originalImage: inputCanvas.toDataURL('image/png'),
+                processedImage: processedCanvas.toDataURL('image/png'),
+                originalSize: {
+                    width: inputCanvas.width,
+                    height: inputCanvas.height
+                },
+                processedSize: {
+                    width: processedCanvas.width,
+                    height: processedCanvas.height
+                },
+                modelParameters: document.getElementById('results').textContent
+            };
+            
+            // Convert to JSON and create download
+            const json = JSON.stringify(debugInfo, null, 2);
+            const blob = new Blob([json], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `face-detection-debug-${new Date().toISOString().replace(/:/g, '-')}.json`;
+            a.click();
+            
+            URL.revokeObjectURL(url);
+            
+            document.getElementById('status').textContent = 'Status: Debug info saved.';
+        }
+        
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (video && video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+            }
+            
+            if (wasmModule) {
+                wasmModule.ccall('cleanup', null, [], []);
+            }
+        });
+    </script>
+</body>
+</html>

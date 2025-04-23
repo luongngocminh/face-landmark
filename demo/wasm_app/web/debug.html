@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face Landmark Debugging Tools</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .canvas-container {
+            position: relative;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+        }
+        #debugCanvas {
+            width: 640px;
+            height: 480px;
+        }
+        .controls {
+            margin-bottom: 20px;
+            width: 100%;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+        }
+        #landmarkData {
+            width: 100%;
+            height: 200px;
+            font-family: monospace;
+            margin-bottom: 20px;
+        }
+        .colors {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .color-option {
+            margin-right: 20px;
+            display: flex;
+            align-items: center;
+        }
+        .color-sample {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            border: 1px solid #000;
+        }
+        .debug-info {
+            font-family: monospace;
+            margin-bottom: 20px;
+            width: 100%;
+            height: 100px;
+            overflow-y: auto;
+            background-color: #f0f0f0;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Face Landmark Debugging Tools</h1>
+        
+        <div class="debug-info" id="debugInfo">
+            Debug information will appear here
+        </div>
+        
+        <div class="canvas-container">
+            <canvas id="debugCanvas"></canvas>
+        </div>
+        
+        <div class="colors">
+            <div class="color-option">
+                <div class="color-sample" style="background-color: red;"></div>
+                <span>Landmarks</span>
+            </div>
+            <div class="color-option">
+                <div class="color-sample" style="background-color: green;"></div>
+                <span>Face Box</span>
+            </div>
+            <div class="color-option">
+                <div class="color-sample" style="background-color: blue;"></div>
+                <span>Landmark Numbers</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <textarea id="landmarkData" placeholder="Paste landmark coordinates here (JSON array of [x,y] pairs)"></textarea>
+            <button id="drawBtn">Draw Landmarks</button>
+            <button id="clearBtn">Clear Canvas</button>
+            <button id="loadTestBtn">Load Test Data</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('debugCanvas');
+        const ctx = canvas.getContext('2d');
+        const debugInfo = document.getElementById('debugInfo');
+        
+        // Set canvas dimensions
+        canvas.width = 640;
+        canvas.height = 480;
+        
+        // Initialize
+        function init() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background grid
+            drawGrid();
+            
+            // Draw coordinate system
+            drawCoordinateSystem();
+        }
+        
+        // Draw a grid on the canvas
+        function drawGrid() {
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = 0.5;
+            
+            // Draw vertical lines
+            for (let x = 0; x <= canvas.width; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+                
+                // Label
+                ctx.fillStyle = '#999';
+                ctx.font = '10px Arial';
+                ctx.fillText(x.toString(), x + 2, 10);
+            }
+            
+            // Draw horizontal lines
+            for (let y = 0; y <= canvas.height; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+                
+                // Label
+                ctx.fillStyle = '#999';
+                ctx.font = '10px Arial';
+                ctx.fillText(y.toString(), 2, y + 10);
+            }
+        }
+        
+        // Draw coordinate axes
+        function drawCoordinateSystem() {
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            
+            // X axis
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(canvas.width, 0);
+            ctx.stroke();
+            
+            // Y axis
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, canvas.height);
+            ctx.stroke();
+            
+            // Labels
+            ctx.fillStyle = '#000';
+            ctx.font = '12px Arial';
+            ctx.fillText('(0,0)', 5, 15);
+            ctx.fillText(`(${canvas.width},${canvas.height})`, canvas.width - 80, canvas.height - 5);
+        }
+        
+        // Draw landmarks from parsed data
+        function drawLandmarks(landmarks) {
+            debugInfo.textContent = `Drawing ${landmarks.length / 2} landmarks`;
+            
+            // Check if we have ROI data (first 4 values)
+            let startIndex = 0;
+            if (landmarks.length >= 4) {
+                const x1 = landmarks[0];
+                const y1 = landmarks[1];
+                const x2 = landmarks[2];
+                const y2 = landmarks[3];
+                
+                // Draw face bounding box
+                ctx.strokeStyle = 'green';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // Add ROI info to debug
+                debugInfo.textContent += `\nROI: (${x1}, ${y1}) to (${x2}, ${y2})`;
+                
+                // Start at index 4 to skip ROI data
+                startIndex = 4;
+            }
+            
+            // Draw landmarks
+            ctx.fillStyle = 'red';
+            for (let i = startIndex; i < landmarks.length; i += 2) {
+                const x = landmarks[i];
+                const y = landmarks[i + 1];
+                
+                ctx.beginPath();
+                ctx.arc(x, y, 2, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // Draw landmark numbers for the first 10 points
+                if ((i - startIndex) / 2 < 10) {
+                    ctx.fillStyle = 'blue';
+                    ctx.font = '10px Arial';
+                    ctx.fillText(`${(i - startIndex) / 2}`, x + 5, y);
+                    ctx.fillStyle = 'red';
+                }
+            }
+        }
+        
+        // Parse landmarks from textarea
+        function parseLandmarks() {
+            const text = document.getElementById('landmarkData').value.trim();
+            try {
+                // Try parsing as JSON array
+                const data = JSON.parse(text);
+                
+                // If it's an array of arrays like [[x1,y1], [x2,y2], ...]
+                if (Array.isArray(data) && Array.isArray(data[0])) {
+                    const landmarks = [];
+                    for (const point of data) {
+                        landmarks.push(point[0]);
+                        landmarks.push(point[1]);
+                    }
+                    return landmarks;
+                }
+                
+                // If it's a flat array [x1, y1, x2, y2, ...]
+                if (Array.isArray(data)) {
+                    return data;
+                }
+                
+                throw new Error('Invalid data format');
+            } catch (e) {
+                // Try parsing as comma-separated values
+                const values = text.split(/[,\s]+/).map(Number);
+                if (values.some(isNaN)) {
+                    throw new Error('Invalid data format');
+                }
+                return values;
+            }
+        }
+        
+        // Event listeners
+        document.getElementById('drawBtn').addEventListener('click', () => {
+            try {
+                const landmarks = parseLandmarks();
+                init();
+                drawLandmarks(landmarks);
+            } catch (e) {
+                debugInfo.textContent = `Error: ${e.message}`;
+            }
+        });
+        
+        document.getElementById('clearBtn').addEventListener('click', init);
+        
+        document.getElementById('loadTestBtn').addEventListener('click', () => {
+            // Load a simple test pattern with ROI and a few landmarks
+            const testData = [
+                // ROI: x1, y1, x2, y2
+                100, 100, 300, 300,
+                // Some test landmarks inside the ROI
+                150, 150,
+                200, 150,
+                250, 150,
+                150, 200,
+                200, 200,
+                250, 200,
+                150, 250,
+                200, 250,
+                250, 250
+            ];
+            document.getElementById('landmarkData').value = JSON.stringify(testData);
+        });
+        
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
