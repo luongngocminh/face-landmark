@@ -10,6 +10,7 @@
 #include "net.h"
 #include "layer.h"
 #include "mat.h"
+#include "simpleocv.h"
 
 // Always include Emscripten since we're targeting web only
 #include <emscripten/emscripten.h>
@@ -19,6 +20,13 @@
 #define EXPORT EMSCRIPTEN_KEEPALIVE
 #else
 #define EXPORT
+#endif
+
+// Add SIMD support if enabled
+#ifdef WITH_SIMD
+#define SIMD_ENABLED 1
+#else
+#define SIMD_ENABLED 0
 #endif
 
 // Define the ROI structure
@@ -47,11 +55,14 @@ public:
     EXPORT void setNumThreads(int numThreads);
     EXPORT int getNumThreads() const;
 
+    // Added method to check if SIMD is enabled
+    EXPORT bool isSIMDEnabled();
+
 private:
     // NCNN-specific processing
     ncnn::Mat preprocessImage(const ncnn::Mat& image);
     std::vector<ROI> extractROI(const ncnn::Mat& image);
-    std::vector<float> extractLandmarks(const ncnn::Mat& face, const ROI& roi);
+    std::vector<float> extractLandmarks(const cv::Mat& face, const ROI& roi);
     
     // Internal implementation details
     void* modelHandle;

@@ -24,11 +24,23 @@ namespace ncnn {
 
 class DataReader;
 class Net;
-class ParamDict
+class ParamDictPrivate;
+class NCNN_EXPORT ParamDict
 {
 public:
     // empty
     ParamDict();
+
+    virtual ~ParamDict();
+
+    // copy
+    ParamDict(const ParamDict&);
+
+    // assign
+    ParamDict& operator=(const ParamDict&);
+
+    // get type
+    int type(int id) const;
 
     // get int
     int get(int id, int def) const;
@@ -36,6 +48,8 @@ public:
     float get(int id, float def) const;
     // get array
     Mat get(int id, const Mat& def) const;
+    // get string
+    std::string get(int id, const std::string& def) const;
 
     // set int
     void set(int id, int i);
@@ -43,6 +57,8 @@ public:
     void set(int id, float f);
     // set array
     void set(int id, const Mat& v);
+    // set string
+    void set(int id, const std::string& s);
 
 protected:
     friend class Net;
@@ -52,24 +68,8 @@ protected:
     int load_param(const DataReader& dr);
     int load_param_bin(const DataReader& dr);
 
-protected:
-    struct
-    {
-        // 0 = null
-        // 1 = int/float
-        // 2 = int
-        // 3 = float
-        // 4 = array of int/float
-        // 5 = array of int
-        // 6 = array of float
-        int type;
-        union
-        {
-            int i;
-            float f;
-        };
-        Mat v;
-    } params[NCNN_MAX_PARAM_COUNT];
+private:
+    ParamDictPrivate* const d;
 };
 
 } // namespace ncnn

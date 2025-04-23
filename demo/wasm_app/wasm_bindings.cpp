@@ -10,6 +10,9 @@
 
 #include <iostream>
 
+// Forward declaration for the function defined in face_landmark.cpp
+extern "C" unsigned char* getLastFaceCrop(int* width, int* height);
+
 FaceLandmarkDetector* detector = nullptr;
 std::mutex detectorMutex;
 
@@ -151,6 +154,27 @@ int getNumHardwareThreads() {
     return std::thread::hardware_concurrency();
 }
 
+// Debug function to get the current face crop for visualization
+EMSCRIPTEN_KEEPALIVE
+unsigned char* getFaceCropForDebug(int* width, int* height) {
+    #ifdef DEBUG_VISUALIZATION
+    return getLastFaceCrop(width, height);
+    #else
+    *width = 0;
+    *height = 0;
+    return nullptr;
+    #endif
+}
+
+// Check if SIMD is enabled in the build
+EMSCRIPTEN_KEEPALIVE
+int isSIMDEnabled() {
+    if (detector == nullptr) {
+        return 0;
+    }
+    return detector->isSIMDEnabled() ? 1 : 0;
+}
+
 } // extern "C"
 
 // Wrapper functions for use with Emscripten bindings
@@ -174,6 +198,17 @@ int getNumHardwareThreadsWrapper() {
     return getNumHardwareThreads();
 }
 
+// Wrapper function for use with Emscripten bindings that returns the face crop
+unsigned char* getFaceCropForDebugWrapper(int* width, int* height) {
+    #ifdef DEBUG_VISUALIZATION
+    return getLastFaceCrop(width, height);
+    #else
+    *width = 0;
+    *height = 0;
+    return nullptr;
+    #endif
+}
+
 // Emscripten bindings
 EMSCRIPTEN_BINDINGS(face_landmark_module) {
     emscripten::function("initialize", &initializeWrapper);
@@ -181,4 +216,10 @@ EMSCRIPTEN_BINDINGS(face_landmark_module) {
     emscripten::function("cleanup", &cleanupWrapper);
     emscripten::function("isThreadingSupported", &isThreadingSupportedWrapper);
     emscripten::function("getNumHardwareThreads", &getNumHardwareThreadsWrapper);
+    
+    // Fix the raw pointer binding by using allow_raw_pointers policy
+    emscripten::function("getFaceCropForDebug", 
+        &getFaceCropForDebugWrapper, 
+        emscripten::allow_raw_pointers());
+    emscripten::function("isSIMDEnabled", &isSIMDEnabled);
 }

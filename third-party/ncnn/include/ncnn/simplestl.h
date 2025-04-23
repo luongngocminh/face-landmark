@@ -26,22 +26,22 @@
 #else
 
 // allocation functions
-void* operator new(size_t size);
-void* operator new[](size_t size);
+NCNN_EXPORT void* operator new(size_t size);
+NCNN_EXPORT void* operator new[](size_t size);
 // placement allocation functions
-void* operator new(size_t size, void* ptr);
-void* operator new[](size_t size, void* ptr);
+NCNN_EXPORT void* operator new(size_t size, void* ptr);
+NCNN_EXPORT void* operator new[](size_t size, void* ptr);
 // deallocation functions
-void operator delete(void* ptr);
-void operator delete[](void* ptr);
+NCNN_EXPORT void operator delete(void* ptr);
+NCNN_EXPORT void operator delete[](void* ptr);
 // deallocation functions since c++14
 #if __cplusplus >= 201402L
-void operator delete(void* ptr, size_t sz);
-void operator delete[](void* ptr, size_t sz);
+NCNN_EXPORT void operator delete(void* ptr, size_t sz);
+NCNN_EXPORT void operator delete[](void* ptr, size_t sz);
 #endif
 // placement deallocation functions
-void operator delete(void* ptr, void* voidptr2);
-void operator delete[](void* ptr, void* voidptr2);
+NCNN_EXPORT void operator delete(void* ptr, void* voidptr2);
+NCNN_EXPORT void operator delete[](void* ptr, void* voidptr2);
 
 #endif
 
@@ -498,6 +498,20 @@ struct vector
         return pos;
     }
 
+    void pop_back()
+    {
+        if (size_ > 0)
+        {
+            data_[size_ - 1].~T();
+            size_--;
+        }
+    }
+
+    T& back() const
+    {
+        return data_[size_ - 1];
+    }
+
 protected:
     T* data_;
     size_t size_;
@@ -508,7 +522,7 @@ protected:
         {
             capacity_ = new_size * 2;
             T* new_data = (T*)new char[capacity_ * sizeof(T)];
-            memset(new_data, 0, capacity_ * sizeof(T));
+            memset(static_cast<void*>(new_data), 0, capacity_ * sizeof(T));
             if (data_)
             {
                 memmove(new_data, data_, sizeof(T) * size_);
@@ -519,7 +533,41 @@ protected:
     }
 };
 
-struct string : public vector<char>
+template<typename T>
+struct stack : protected vector<T>
+{
+    void push(const T& t)
+    {
+        vector<T>::push_back(t);
+    }
+
+    void pop()
+    {
+        vector<T>::pop_back();
+    }
+
+    T& top()
+    {
+        return vector<T>::back();
+    }
+
+    bool empty() const
+    {
+        return vector<T>::empty();
+    }
+
+    size_t size() const
+    {
+        return vector<T>::size();
+    }
+
+    void clear()
+    {
+        vector<T>::clear();
+    }
+};
+
+struct NCNN_EXPORT string : public vector<char>
 {
     string()
     {
@@ -536,15 +584,11 @@ struct string : public vector<char>
     }
     bool operator==(const string& str2) const
     {
-        return strcmp(data_, str2.data_) == 0;
+        return size_ == str2.size_ && strncmp(data_, str2.data_, size_) == 0;
     }
-    bool operator==(const char* str2) const
+    bool operator!=(const string& str2) const
     {
-        return strcmp(data_, str2) == 0;
-    }
-    bool operator!=(const char* str2) const
-    {
-        return strcmp(data_, str2) != 0;
+        return size_ != str2.size_ || strncmp(data_, str2.data_, size_) != 0;
     }
     string& operator+=(const string& str1)
     {

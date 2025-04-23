@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Face ROI Debug Visualizer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .debug-views {
+            display: flex;
+            width: 100%;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .view {
+            flex: 1;
+            margin: 10px;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 8px;
+            min-width: 450px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .video-container {
+            position: relative;
+            margin-bottom: 15px;
+        }
+        video, canvas {
+            width: 100%;
+            max-width: 640px;
+            display: block;
+            margin: 0 auto;
+            border-radius: 4px;
+        }
+        .overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 0 8px 8px 0;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 12px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin: 10px 0 20px;
+            text-align: center;
+            border-left: 4px solid #4CAF50;
+        }
+        .image-stats {
+            font-family: monospace;
+            font-size: 14px;
+            margin: 10px 0;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        h2, h3 {
+            color: #333;
+            text-align: center;
+            margin-top: 0;
+        }
+        .histogram-canvas {
+            width: 100%;
+            height: 120px;
+            margin: 10px auto;
+            display: block;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .roi-container {
+            position: relative;
+            margin: 10px auto;
+            border: 2px solid #4CAF50;
+            border-radius: 4px;
+            overflow: hidden;
+            max-width: 224px;
+        }
+        #roiCanvas {
+            display: block;
+            width: 100%;
+        }
+        .settings {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .setting-item {
+            margin-bottom: 8px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .tabs {
+            display: flex;
+            margin: 20px 0 0;
+            border-bottom: 2px solid #4CAF50;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #e9ecef;
+            border-radius: 8px 8px 0 0;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 0 0 8px 8px;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Face ROI Debug Visualizer</h2>
+        
+        <div class="status" id="status">Loading WASM module...</div>
+        
+        <div class="settings">
+            <h3>Debug Settings</h3>
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <label for="showOriginal">
+                        <input type="checkbox" id="showOriginal" checked>
+                        Show Original Image
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="showROIBox">
+                        <input type="checkbox" id="showROIBox" checked>
+                        Show ROI Box
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="showLandmarks">
+                        <input type="checkbox" id="showLandmarks" checked>
+                        Show Landmarks
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="highlightKeypoints">
+                        <input type="checkbox" id="highlightKeypoints" checked>
+                        Highlight Key Points
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="mirrorVideo">
+                        <input type="checkbox" id="mirrorVideo" checked>
+                        Mirror Video
+                    </label>
+                </div>
+                <div class="setting-item">
+                    <label for="roiSize">
+                        ROI Display Size:
+                        <select id="roiSize">
+                            <option value="112">112px (Default)</option>
+                            <option value="224" selected>224px (2x)</option>
+                            <option value="336">336px (3x)</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <div class="debug-views">
+            <div class="view">
+                <h3>Camera View</h3>
+                <div class="video-container">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="videoOverlay" class="overlay-canvas"></canvas>
+                </div>
+                <div class="image-stats" id="cameraStats">
+                    Resolution: -- x --
+                </div>
+            </div>
+            
+            <div class="view">
+                <h3>Face ROI Input</h3>
+                <div class="roi-container">
+                    <canvas id="roiCanvas"></canvas>
+                </div>
+                <div class="tabs">
+                    <div class="tab active" data-tab="basic">Basic Info</div>
+                    <div class="tab" data-tab="histogram">Histogram</div>
+                    <div class="tab" data-tab="debug">Debug Data</div>
+                </div>
+                <div class="tab-content active" data-tab="basic">
+                    <div class="image-stats" id="roiStats">
+                        Size: -- x --<br>
+                        Input to model: -- x --<br>
+                        ROI coordinates: -- x --
+                    </div>
+                </div>
+                <div class="tab-content" data-tab="histogram">
+                    <canvas id="roiHistogram" class="histogram-canvas"></canvas>
+                </div>
+                <div class="tab-content" data-tab="debug">
+                    <div class="image-stats" id="debugInfo">
+                        Waiting for ROI data...
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="captureBtn" disabled>Capture Frame</button>
+            <button id="continuousBtn" disabled>Start Continuous</button>
+            <button id="saveBtn" disabled>Save ROI Image</button>
+            <button id="stopBtn" disabled>Stop Camera</button>
+        </div>
+    </div>
+    
+    <script src="custom_face_landmark_wasm.js"></script>
+    <script>
+        let wasmModule = null;
+        let video = null;
+        let videoOverlay = null;
+        let videoCtx = null;
+        let roiCanvas = null;
+        let roiCtx = null;
+        let histCanvas = null;
+        let histCtx = null;
+        let continuousMode = false;
+        let animationId = null;
+        let lastROI = null;
+        let lastLandmarks = null;
+        
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize UI elements
+            const statusElement = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            const captureBtn = document.getElementById('captureBtn');
+            const continuousBtn = document.getElementById('continuousBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            
+            video = document.getElementById('video');
+            videoOverlay = document.getElementById('videoOverlay');
+            videoCtx = videoOverlay.getContext('2d');
+            roiCanvas = document.getElementById('roiCanvas');
+            roiCtx = roiCanvas.getContext('2d');
+            histCanvas = document.getElementById('roiHistogram');
+            histCtx = histCanvas.getContext('2d');
+            
+            // Set initial canvas dimensions
+            videoOverlay.width = 640;
+            videoOverlay.height = 480;
+            roiCanvas.width = 224;
+            roiCanvas.height = 224;
+            histCanvas.width = 256;
+            histCanvas.height = 120;
+            
+            // Tab switching
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    // Remove active class from all tabs and content
+                    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                    
+                    // Add active class to clicked tab and corresponding content
+                    tab.classList.add('active');
+                    const tabName = tab.getAttribute('data-tab');
+                    document.querySelector(`.tab-content[data-tab="${tabName}"]`).classList.add('active');
+                });
+            });
+            
+            // Load WASM module
+            FaceLandmarkModule().then(module => {
+                wasmModule = module;
+                statusElement.textContent = 'WASM module loaded. Initialize detector...';
+                
+                // Initialize the detector
+                const initSuccess = wasmModule.ccall('initialize', 'number', [], []);
+                if (initSuccess) {
+                    // Load models
+                    const modelLoadSuccess = wasmModule.ccall('loadModel', 'number', ['string'], ['/models']);
+                    
+                    if (modelLoadSuccess) {
+                        statusElement.textContent = 'Ready! Start camera to begin debugging ROI.';
+                        startBtn.disabled = false;
+                    } else {
+                        statusElement.textContent = 'Failed to load models.';
+                    }
+                } else {
+                    statusElement.textContent = 'Failed to initialize detector.';
+                }
+            }).catch(err => {
+                console.error('Failed to load WASM module:', err);
+                statusElement.textContent = 'Failed to load WASM module: ' + err.message;
+            });
+            
+            // Event listeners
+            startBtn.addEventListener('click', startCamera);
+            captureBtn.addEventListener('click', captureFrame);
+            continuousBtn.addEventListener('click', toggleContinuousMode);
+            saveBtn.addEventListener('click', saveROIImage);
+            stopBtn.addEventListener('click', stopCamera);
+            
+            // ROI size change
+            document.getElementById('roiSize').addEventListener('change', updateROICanvasSize);
+        });
+        
+        function updateROICanvasSize() {
+            const size = parseInt(document.getElementById('roiSize').value);
+            roiCanvas.width = size;
+            roiCanvas.height = size;
+            
+            // If we have a last ROI image, redraw it at the new size
+            if (lastROI) {
+                redrawROI();
+            }
+        }
+        
+        function startCamera() {
+            if (!wasmModule) {
+                alert('WASM module not loaded yet.');
+                return;
+            }
+            
+            const constraints = {
+                video: {
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            };
+            
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(stream => {
+                    video.srcObject = stream;
+                    
+                    // Wait for video to load metadata to set canvas size
+                    video.onloadedmetadata = () => {
+                        videoOverlay.width = video.videoWidth;
+                        videoOverlay.height = video.videoHeight;
+                        document.getElementById('cameraStats').textContent = 
+                            `Resolution: ${video.videoWidth} x ${video.videoHeight}`;
+                    };
+                    
+                    document.getElementById('startBtn').disabled = true;
+                    document.getElementById('captureBtn').disabled = false;
+                    document.getElementById('continuousBtn').disabled = false;
+                    document.getElementById('saveBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = false;
+                    document.getElementById('status').textContent = 'Camera started. Capture a frame to view ROI.';
+                })
+                .catch(err => {
+                    console.error('Error accessing camera:', err);
+                    document.getElementById('status').textContent = 'Failed to access camera: ' + err.message;
+                });
+        }
+        
+        function captureFrame() {
+            if (!video.srcObject) return;
+            
+            document.getElementById('status').textContent = 'Processing frame...';
+            processFrame();
+        }
+        
+        function toggleContinuousMode() {
+            continuousMode = !continuousMode;
+            const btn = document.getElementById('continuousBtn');
+            
+            if (continuousMode) {
+                btn.textContent = 'Stop Continuous';
+                document.getElementById('captureBtn').disabled = true;
+                processContinuously();
+            } else {
+                btn.textContent = 'Start Continuous';
+                document.getElementById('captureBtn').disabled = false;
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+            }
+        }
+        
+        function processContinuously() {
+            if (!continuousMode) return;
+            
+            processFrame();
+            animationId = requestAnimationFrame(processContinuously);
+        }
+        
+        function processFrame() {
+            // Create a temporary canvas to capture the video frame
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Mirror the video if needed
+            if (document.getElementById('mirrorVideo').checked) {
+                tempCtx.translate(tempCanvas.width, 0);
+                tempCtx.scale(-1, 1);
+            }
+            
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Get image data
+            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Allocate memory for image data in WASM
+            const imageDataPtr = wasmModule._malloc(imageData.data.length);
+            wasmModule.HEAPU8.set(imageData.data, imageDataPtr);
+            
+            // Process the frame for face detection and landmarks
+            const numPointsPtr = wasmModule._malloc(4);
+            const landmarksPtr = wasmModule.ccall(
+                'detectLandmarks',
+                'number',
+                ['number', 'number', 'number', 'number'],
+                [imageDataPtr, tempCanvas.width, tempCanvas.height, numPointsPtr]
+            );
+            
+            // Get number of landmark points
+            const numPoints = wasmModule.getValue(numPointsPtr, 'i32');
+            
+            // Extract landmarks
+            lastLandmarks = [];
+            if (landmarksPtr && numPoints > 0) {
+                for (let i = 0; i < numPoints; i++) {
+                    lastLandmarks.push(wasmModule.getValue(landmarksPtr + (i * 4), 'float'));
+                }
+                
+                // Free the landmarks memory
+                wasmModule._free(landmarksPtr);
+            }
+            
+            // Now get the ROI image
+            const widthPtr = wasmModule._malloc(4);
+            const heightPtr = wasmModule._malloc(4);
+            
+            const roiDataPtr = wasmModule.ccall(
+                'getFaceCropForDebug',
+                'number',
+                ['number', 'number'],
+                [widthPtr, heightPtr]
+            );
+            
+            if (roiDataPtr) {
+                const roiWidth = wasmModule.getValue(widthPtr, 'i32');
+                const roiHeight = wasmModule.getValue(heightPtr, 'i32');
+                
+                if (roiWidth > 0 && roiHeight > 0) {
+                    // Create an object to hold the ROI data
+                    lastROI = {
+                        width: roiWidth,
+                        height: roiHeight,
+                        data: new Uint8Array(roiWidth * roiHeight * 3)
+                    };
+                    
+                    // Copy the data
+                    for (let i = 0; i < lastROI.data.length; i++) {
+                        lastROI.data[i] = wasmModule.HEAPU8[roiDataPtr + i];
+                    }
+                    
+                    // Draw the ROI
+                    redrawROI();
+                    
+                    // Update status
+                    document.getElementById('status').textContent = 
+                        `Face detected. ROI size: ${roiWidth}x${roiHeight}`;
+                    
+                    // Update ROI stats
+                    document.getElementById('roiStats').innerHTML = 
+                        `Size: ${roiWidth} x ${roiHeight}<br>` +
+                        `Input to model: 112 x 112<br>` +
+                        `ROI coordinates: (${lastLandmarks[0].toFixed(1)}, ${lastLandmarks[1].toFixed(1)}) to ` +
+                        `(${lastLandmarks[2].toFixed(1)}, ${lastLandmarks[3].toFixed(1)})`;
+                    
+                    // Update debug info
+                    document.getElementById('debugInfo').innerHTML = 
+                        `ROI Aspect Ratio: ${(roiWidth / roiHeight).toFixed(4)}<br>` +
+                        `Scale Factor: ${(112 / roiWidth).toFixed(4)}<br>` +
+                        `ROI Area: ${(roiWidth * roiHeight)} pixels<br>` + 
+                        `Raw bytes: ${lastROI.data.length} (${lastROI.data.length / (roiWidth * roiHeight)} per pixel)`;
+                    
+                    // Free the ROI data
+                    wasmModule.ccall('freeMemory', null, ['number'], [roiDataPtr]);
+                } else {
+                    document.getElementById('status').textContent = 'No face detected in frame.';
+                }
+            } else {
+                document.getElementById('status').textContent = 'Failed to get ROI image.';
+            }
+            
+            // Draw the landmarks on the video overlay
+            drawLandmarksOnVideo(lastLandmarks, tempCanvas.width, tempCanvas.height);
+            
+            // Free memory
+            wasmModule._free(imageDataPtr);
+            wasmModule._free(numPointsPtr);
+            wasmModule._free(widthPtr);
+            wasmModule._free(heightPtr);
+        }
+        
+        function redrawROI() {
+            if (!lastROI) return;
+            
+            // Clear the canvas
+            roiCtx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+            
+            // Create a temporary canvas to hold the ROI at its original size
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = lastROI.width;
+            tempCanvas.height = lastROI.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Create ImageData and set the pixel values
+            const imgData = tempCtx.createImageData(lastROI.width, lastROI.height);
+            
+            // Convert RGB data to RGBA
+            for (let i = 0; i < lastROI.data.length / 3; i++) {
+                imgData.data[i * 4] = lastROI.data[i * 3]; // R
+                imgData.data[i * 4 + 1] = lastROI.data[i * 3 + 1]; // G
+                imgData.data[i * 4 + 2] = lastROI.data[i * 3 + 2]; // B
+                imgData.data[i * 4 + 3] = 255; // A (fully opaque)
+            }
+            
+            tempCtx.putImageData(imgData, 0, 0);
+            
+            // Draw the ROI on the canvas, scaling it to fit
+            roiCtx.drawImage(tempCanvas, 0, 0, roiCanvas.width, roiCanvas.height);
+            
+            // Draw histogram if the tab is active
+            if (document.querySelector('.tab[data-tab="histogram"]').classList.contains('active')) {
+                drawHistogram(imgData, histCtx);
+            }
+        }
+        
+        function drawLandmarksOnVideo(landmarks, sourceWidth, sourceHeight) {
+            if (!landmarks || landmarks.length === 0) return;
+            
+            // Clear the canvas
+            videoCtx.clearRect(0, 0, videoOverlay.width, videoOverlay.height);
+            
+            // Check if we should show the original image or ROI box
+            const showOriginal = document.getElementById('showOriginal').checked;
+            const showROIBox = document.getElementById('showROIBox').checked;
+            const showLandmarks = document.getElementById('showLandmarks').checked;
+            const highlightKeypoints = document.getElementById('highlightKeypoints').checked;
+            
+            if (!showOriginal) {
+                // If not showing original, add a semi-transparent overlay
+                videoCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                videoCtx.fillRect(0, 0, videoOverlay.width, videoOverlay.height);
+            }
+            
+            // Calculate scale factors
+            const scaleX = videoOverlay.width / sourceWidth;
+            const scaleY = videoOverlay.height / sourceHeight;
+            
+            // Draw ROI box if enabled and we have ROI info (first 4 values are ROI coordinates)
+            if (showROIBox && landmarks.length >= 4) {
+                const x1 = landmarks[0] * scaleX;
+                const y1 = landmarks[1] * scaleY;
+                const x2 = landmarks[2] * scaleX;
+                const y2 = landmarks[3] * scaleY;
+                
+                videoCtx.strokeStyle = 'green';
+                videoCtx.lineWidth = 2;
+                videoCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                
+                // Draw a label for the ROI
+                videoCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                videoCtx.fillRect(x1, y1 - 20, 100, 20);
+                videoCtx.fillStyle = 'white';
+                videoCtx.font = '12px Arial';
+                videoCtx.fillText(`ROI: ${Math.round(x2 - x1)}x${Math.round(y2 - y1)}`, x1 + 5, y1 - 5);
+            }
+            
+            // Draw landmarks if enabled
+            if (showLandmarks) {
+                // Skip ROI values (first 4)
+                for (let i = 4; i < landmarks.length; i += 2) {
+                    const x = landmarks[i] * scaleX;
+                    const y = landmarks[i + 1] * scaleY;
+                    
+                    // Skip invalid coordinates
+                    if (isNaN(x) || isNaN(y)) continue;
+                    
+                    // Key facial landmarks are highlighted if the option is enabled
+                    // Indices based on a 106-point model. Adjust if different.
+                    const keypointIndices = [0, 36, 42, 48, 54, 60, 68, 72, 85, 97]; // Eyes, nose, mouth, etc.
+                    const isKeypoint = highlightKeypoints && keypointIndices.includes((i - 4) / 2);
+                    
+                    if (isKeypoint) {
+                        videoCtx.fillStyle = 'yellow';
+                        videoCtx.beginPath();
+                        videoCtx.arc(x, y, 3, 0, 2 * Math.PI);
+                        videoCtx.fill();
+                        
+                        // Draw label for key points
+                        videoCtx.fillStyle = 'black';
+                        videoCtx.font = '10px Arial';
+                        videoCtx.fillText(`${(i - 4) / 2}`, x + 5, y);
+                    } else {
+                        videoCtx.fillStyle = 'red';
+                        videoCtx.beginPath();
+                        videoCtx.arc(x, y, 1.5, 0, 2 * Math.PI);
+                        videoCtx.fill();
+                    }
+                }
+            }
+        }
+        
+        function drawHistogram(imageData, ctx) {
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            
+            // Calculate histograms
+            const histR = Array(256).fill(0);
+            const histG = Array(256).fill(0);
+            const histB = Array(256).fill(0);
+            
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                histR[data[i]]++;     // R
+                histG[data[i+1]]++;   // G
+                histB[data[i+2]]++;   // B
+            }
+            
+            // Find max value for scaling
+            const maxR = Math.max(...histR);
+            const maxG = Math.max(...histG);
+            const maxB = Math.max(...histB);
+            const maxCount = Math.max(maxR, maxG, maxB);
+            
+            // Scale factor for histogram
+            const scaleY = ctx.canvas.height / maxCount * 0.9; // Leave some margin
+            const barWidth = ctx.canvas.width / 256;
+            
+            // Draw histograms
+            ctx.lineWidth = 1;
+            
+            // Red histogram
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histR[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Green histogram
+            ctx.strokeStyle = 'rgba(0, 255, 0, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histG[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Blue histogram
+            ctx.strokeStyle = 'rgba(0, 0, 255, 0.7)';
+            ctx.beginPath();
+            for (let i = 0; i < 256; i++) {
+                const x = i * barWidth;
+                const y = ctx.canvas.height - histB[i] * scaleY;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+            
+            // Draw some axis labels
+            ctx.fillStyle = '#333';
+            ctx.font = '10px Arial';
+            ctx.fillText('0', 2, ctx.canvas.height - 2);
+            ctx.fillText('255', ctx.canvas.width - 20, ctx.canvas.height - 2);
+            ctx.fillText(`Max: ${maxCount}`, 5, 12);
+        }
+        
+        function saveROIImage() {
+            if (!lastROI) {
+                alert('No ROI image available to save.');
+                return;
+            }
+            
+            try {
+                // Get current ROI canvas content with any visualizations
+                const dataURL = roiCanvas.toDataURL('image/png');
+                
+                // Create a download link
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = `face-roi-${new Date().toISOString().replace(/:/g, '-')}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                document.getElementById('status').textContent = 'ROI image saved!';
+            } catch (e) {
+                console.error('Error saving ROI image:', e);
+                document.getElementById('status').textContent = 'Error saving ROI image: ' + e.message;
+            }
+        }
+        
+        function stopCamera() {
+            if (continuousMode) {
+                toggleContinuousMode();
+            }
+            
+            if (video && video.srcObject) {
+                const stream = video.srcObject;
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());
+                video.srcObject = null;
+                
+                // Clear canvases
+                videoCtx.clearRect(0, 0, videoOverlay.width, videoOverlay.height);
+                roiCtx.clearRect(0, 0, roiCanvas.width, roiCanvas.height);
+                
+                // Reset UI
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('captureBtn').disabled = true;
+                document.getElementById('continuousBtn').disabled = true;
+                document.getElementById('saveBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('status').textContent = 'Camera stopped.';
+            }
+        }
+        
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (video && video.srcObject) {
+                const tracks = video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+            }
+            
+            if (wasmModule) {
+                wasmModule.ccall('cleanup', null, [], []);
+            }
+        });
+    </script>
+</body>
+</html>

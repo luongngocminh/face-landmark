@@ -4,9 +4,9 @@
 mkdir -p wasm-build
 cd wasm-build
 
-# Configure with Emscripten
-echo "Configuring project with Emscripten..."
-emcmake cmake .. -DWASM_FEATURE=simd-threads
+# Configure with Emscripten - enable SIMD features
+echo "Configuring project with Emscripten (SIMD enabled)..."
+emcmake cmake .. -DCMAKE_BUILD_TYPE=Release
 
 # Build
 echo "Building project..."

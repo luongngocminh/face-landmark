@@ -95,6 +95,23 @@
         }
     </style>
     <script>
+        // Check for SIMD support
+        function checkSIMDSupport() {
+            if (typeof WebAssembly === 'object' && 
+                typeof WebAssembly.validate === 'function') {
+                const simdTest = new Uint8Array([
+                    0x00, 0x61, 0x73, 0x6d, // WASM_BINARY_MAGIC
+                    0x01, 0x00, 0x00, 0x00, // WASM_BINARY_VERSION
+                    0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7b, // Type section
+                    0x03, 0x02, 0x01, 0x00, // Function section
+                    0x07, 0x05, 0x01, 0x01, 0x65, 0x00, 0x00, // Export section
+                    0x0a, 0x09, 0x01, 0x07, 0x00, 0xfd, 0x0f, 0x00, 0x00, 0x0b // Code section with SIMD instruction
+                ]);
+                return WebAssembly.validate(simdTest);
+            }
+            return false;
+        }
+        
         // Global placeholder for the callback that will be properly defined in app.js
         window._landmarkDetectionComplete = function(promiseId, landmarksPtr, numPoints) {
             console.log("Landmark detection placeholder called - this should be replaced by app.js implementation");
@@ -102,6 +119,22 @@
         
         // Also define the function that will hold the module
         var Module = {
+            onRuntimeInitialized: function() {
+                // Check if SIMD is supported
+                const simdSupported = checkSIMDSupport();
+                console.log("SIMD support:", simdSupported ? "AVAILABLE" : "NOT AVAILABLE");
+                
+                // Store SIMD support status in a global variable
+                window.simdSupported = simdSupported;
+                
+                // Add SIMD status to the threading info element when it's available
+                setTimeout(() => {
+                    const threadingInfoElement = document.getElementById('threading-info');
+                    if (threadingInfoElement) {
+                        threadingInfoElement.innerHTML += `<br>SIMD support: ${simdSupported ? "Available" : "Not available"}`;
+                    }
+                }, 100);
+            },
             onLandmarkDetectionComplete: function(promiseId, landmarksPtr, numPoints) {
                 // This will be overridden in app.js
                 if (window._landmarkDetectionComplete) {

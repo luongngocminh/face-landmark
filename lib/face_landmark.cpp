@@ -7,12 +7,13 @@
 // Include NCNN headers directly
 #include "net.h"
 #include "layer.h"
+#include "simpleocv.h"
 #include "benchmark.h"
 #include "mat.h"
 #include <cmath>
 
 // Always include Emscripten since we're targeting web only
-#include <emscripten.h>
+// #include <emscripten.h>
 
 FaceLandmarkDetector::FaceLandmarkDetector() : modelHandle(nullptr),
                                                isInitialized(false),
@@ -34,9 +35,12 @@ FaceLandmarkDetector::~FaceLandmarkDetector()
 {
     // Cleanup resources
     std::lock_guard<std::mutex> lock(mutex);
+    // Cleanup NCNN models
 
-    faceDetector = ncnn::Net();
-    landmarkDetector = ncnn::Net();
+    faceDetector.clear();
+
+    // Free landmark detector resources
+    landmarkDetector.clear();
 
     if (modelHandle != nullptr)
     {
@@ -53,7 +57,6 @@ bool FaceLandmarkDetector::initialize()
     // Set the number of threads for NCNN
     // ncnn::set_cpu_powersave(2);
     // ncnn::set_omp_num_threads(numThreads);
-
     isInitialized = true;
     return isInitialized;
 }
@@ -227,9 +230,9 @@ std::vector<ROI> FaceLandmarkDetector::extractROI(const ncnn::Mat &image)
         // Original padding: 0.55, 0.35, 0.55, 0.55 (left, top, right, bottom)
         // Increased padding: 0.70, 0.70, 0.70, 0.70
         x1 = cx - 0.55f * pw;
-        y1 = cy - 0.55f * ph;
+        y1 = cy - 0.7f * ph;
         x2 = cx + 0.55f * pw;
-        y2 = cy + 0.55f * ph;
+        y2 = cy + 0.7f * ph;
 
         score = values[1];
         label = (int)values[0];
@@ -328,7 +331,11 @@ std::vector<float> FaceLandmarkDetector::detectLandmarksFromMat(const ncnn::Mat 
         }
 
         // Extract landmarks for the face
-        landmarks = extractLandmarks(image, roi);
+        unsigned char *pixels = new unsigned char[image.w * image.h * 3]; // RGB format = 3 channels
+        image.to_pixels(pixels, ncnn::Mat::PIXEL_RGB);                    // Consistent RGB format
+        cv::Mat rgb = cv::Mat(image.h, image.w, CV_8UC3, pixels);
+        cv::Mat faceImage = rgb(cv::Rect(x1, y1, width, height));
+        landmarks = extractLandmarks(faceImage, roi);
 
         return landmarks;
     }
@@ -362,25 +369,25 @@ ncnn::Mat FaceLandmarkDetector::preprocessImage(const ncnn::Mat &image)
 
     // First convert to pixels, then resize
     // This is necessary because image.data is void* const, not unsigned char*
-    unsigned char* pixels = new unsigned char[image.w * image.h * 4];
-    image.to_pixels(pixels, ncnn::Mat::PIXEL_RGBA);
-    
+    unsigned char *pixels = new unsigned char[image.w * image.h * 3]; // RGB format = 3 channels
+    image.to_pixels(pixels, ncnn::Mat::PIXEL_RGB);                    // Consistent RGB format
+
     // Now resize from the pixel data
-    ncnn::Mat in = ncnn::Mat::from_pixels_resize(pixels, ncnn::Mat::PIXEL_RGBA2RGB, 
-                                              image.w, image.h, w, h);
-    
+    ncnn::Mat in = ncnn::Mat::from_pixels_resize(pixels, ncnn::Mat::PIXEL_RGB, // Consistent RGB format
+                                                 image.w, image.h, w, h);
+
     // Free the temporary pixel buffer
     delete[] pixels;
-    
+
     // Apply proper padding to make dimensions multiple of 32
     int wpad = (w + 31) / 32 * 32 - w;
     int hpad = (h + 31) / 32 * 32 - h;
     ncnn::Mat in_pad;
-    
+
     // Apply the padding using NCNN's function (ensures the padding is correct)
-    ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2, 
-                         ncnn::BORDER_CONSTANT, 114.f);
-    
+    ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2,
+                           ncnn::BORDER_CONSTANT, 114.f);
+
     // Normalize image for face detection
     const float mean_vals[3] = {0.f, 0.f, 0.f};
     const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
@@ -389,7 +396,12 @@ ncnn::Mat FaceLandmarkDetector::preprocessImage(const ncnn::Mat &image)
     return in_pad;
 }
 
-std::vector<float> FaceLandmarkDetector::extractLandmarks(const ncnn::Mat &image, const ROI &roi)
+// New variable to store the last face image for debugging
+#ifdef DEBUG_VISUALIZATION
+static cv::Mat lastFaceImage;
+#endif
+
+std::vector<float> FaceLandmarkDetector::extractLandmarks(const cv::Mat &face, const ROI &roi)
 {
     std::vector<float> landmarks;
 
@@ -407,50 +419,62 @@ std::vector<float> FaceLandmarkDetector::extractLandmarks(const ncnn::Mat &image
         std::cout << "Face crop: x1=" << x1 << ", y1=" << y1 << ", x2=" << x2 << ", y2=" << y2 << std::endl;
         std::cout << "Face dimensions: " << width << "x" << height << std::endl;
 
+        // Debug the face image
+        std::cout << "Face image size: " << face.cols << " x " << face.rows << std::endl;
+        std::cout << "Face image channels: " << face.channels() << std::endl;
+
+// Save the cropped face for debug visualization
+#ifdef DEBUG_VISUALIZATION
+        lastFaceImage = face.clone();
+#endif
+
+        // Check first and last few pixels of the face image
+        std::cout << "First few pixels of face image: ";
+        for (int i = 0; i < std::min(30, face.cols * face.rows * face.channels()); i += 3)
+        {
+            std::cout << "(" << (int)face.data[i] << "," << (int)face.data[i + 1] << "," << (int)face.data[i + 2] << ") ";
+        }
+        std::cout << std::endl;
+        std::cout << "Last few pixels of face image: ";
+        for (int i = std::max(0, face.cols * face.rows * face.channels() - 30); i < face.cols * face.rows * face.channels(); i += 3)
+        {
+            std::cout << "(" << (int)face.data[i] << "," << (int)face.data[i + 1] << "," << (int)face.data[i + 2] << ") ";
+        }
+        std::cout << std::endl;
         // Convert image to pixels first, then use from_pixels_roi_resize
-        unsigned char* pixels = nullptr;
+        // unsigned char* pixels = nullptr;
         ncnn::Mat in;
-        
-        try {
-            // First allocate a buffer for the image pixel data
-            const size_t pixelSize = image.w * image.h * 4;
-            pixels = new unsigned char[pixelSize]();
-            
-            // Convert the input image to pixels
-            image.to_pixels(pixels, ncnn::Mat::PIXEL_RGBA);
-            
-            // Use the pixel data for cropping and resizing with bounds checking
-            if (x1 >= 0 && y1 >= 0 && width > 0 && height > 0 && 
-                x1 + width <= image.w && y1 + height <= image.h) {
-                
-                // Create face image by cropping and resizing to the target dimensions
-                in = ncnn::Mat::from_pixels_roi_resize(pixels, ncnn::Mat::PIXEL_RGBA2BGR, 
-                                                       image.w, image.h, x1, y1, width, height,
-                                                       landmarkDetectorWidth, landmarkDetectorHeight);
+
+        // Use the pixel data for cropping and resizing with bounds checking
+        if (x1 >= 0 && y1 >= 0 && width > 0 && height > 0)
+        {
+            // Create face image by cropping and resizing to the target dimensions
+            in = ncnn::Mat::from_pixels_resize(face.data, ncnn::Mat::PIXEL_RGB2BGR,
+                                               face.cols, face.rows,
+                                               landmarkDetectorWidth, landmarkDetectorHeight);
+
+            // Debug the cropped image
             std::cout << "Cropped face image size: " << in.w << " x " << in.h << std::endl;
-            std::cout << "Cropped face image data: " << in.data << std::endl;
-            } else if (x1 < 0 || y1 < 0) {
-                std::cerr << "Invalid crop region: negative coordinates" << std::endl;
-                throw std::runtime_error("Invalid crop region");
-            } else if (width <= 0 || height <= 0) {
-                std::cerr << "Invalid crop region: zero dimensions" << std::endl;
-                throw std::runtime_error("Invalid crop region");
-            } else {
-                std::cerr << "Invalid crop region: outside of image bounds" << std::endl;
-                throw std::runtime_error("Invalid crop region");
+
+            // Check the first few pixels of the cropped image
+            std::cout << "First few pixels of cropped image: ";
+            for (int i = 0; i < std::min(30, in.w * in.h * in.c); i += 3)
+            {
+                std::cout << "(" << (int)in[i] << "," << (int)in[i + 1] << "," << (int)in[i + 2] << ") ";
             }
-            
-            // Free the temporary pixel buffer now that we're done with it
-            delete[] pixels;
-            pixels = nullptr;
-        
-        } catch (const std::exception& e) {
-            // Make sure to clean up in case of exception
-            if (pixels) {
-                delete[] pixels;
-                pixels = nullptr;
+
+            // Debug the cropped image
+            if (in.empty())
+            {
+                std::cerr << "ERROR: Cropped image is empty!" << std::endl;
+                throw std::runtime_error("Cropped image is empty");
             }
-            throw; // Re-throw the exception
+        }
+        else
+        {
+            std::cerr << "Invalid crop region: outside of image bounds" << std::endl;
+            std::cerr << "Crop region: x1=" << x1 << ", y1=" << y1 << ", x2=" << x2 << ", y2=" << y2 << std::endl;
+            throw std::runtime_error("Invalid crop region");
         }
 
         // Normalize for landmark detection
@@ -460,9 +484,24 @@ std::vector<float> FaceLandmarkDetector::extractLandmarks(const ncnn::Mat &image
 
         // Run landmark detection
         ncnn::Extractor ex = landmarkDetector.create_extractor();
+
+        // Debug available output blobs in the model
+        std::cout << "Attempting to identify landmark model outputs..." << std::endl;
+
+        // Try different possible output blob names common in landmark detection models
         ex.input("data", in);
         ncnn::Mat out;
-        ex.extract("bn6_3_bn6_3_scale", out);
+        int ret = ex.extract("bn6_3_bn6_3_scale", out);
+        if (ret != 0)
+        {
+            std::cerr << "ERROR: Failed to extract landmarks, tried all possible output blobs" << std::endl;
+        }
+
+        // Check output size
+        if (out.w < 212)
+        {
+            std::cerr << "WARNING: Unexpected output size: " << out.w << " (expected at least 212)" << std::endl;
+        }
 
         // Scale landmarks back to original image coordinates
         float scale_w = static_cast<float>(width) / landmarkDetectorWidth;
@@ -473,22 +512,24 @@ std::vector<float> FaceLandmarkDetector::extractLandmarks(const ncnn::Mat &image
 
         // For demo purposes (assume 106 landmarks with x,y pairs = 212 values)
         std::cout << "Landmark output size: " << out.w << " x " << out.h << std::endl;
-        landmarks.resize(212);
-        for (int i = 0; i < 106; i++)
+
+        // Adjust the landmark count based on actual output size
+        int numLandmarks = out.w / 2;
+        if (numLandmarks * 2 != out.w)
+        {
+            // If not even number of values, might be a different format
+            numLandmarks = std::min(106, out.w / 2); // Default to 106 landmarks or less
+        }
+
+        std::cout << "Using " << numLandmarks << " landmarks" << std::endl;
+        landmarks.resize(numLandmarks * 2);
+        // Check
+
+        for (int i = 0; i < numLandmarks; i++)
         {
             // Scale landmark coordinates to original image space
             float lx = out[i * 2] * landmarkDetectorWidth * scale_w + x1;
             float ly = out[i * 2 + 1] * landmarkDetectorHeight * scale_h + y1;
-
-            // Check for valid coordinates
-            if (lx < 0)
-                lx = 0;
-            if (ly < 0)
-                ly = 0;
-            if (lx >= image.w)
-                lx = image.w - 1;
-            if (ly >= image.h)
-                ly = image.h - 1;
 
             landmarks[i * 2] = lx;
             landmarks[i * 2 + 1] = ly;
@@ -519,6 +560,46 @@ std::vector<float> FaceLandmarkDetector::extractLandmarks(const ncnn::Mat &image
 
         return landmarks;
     }
+}
+
+// New method to get the debugged face crop for visualization
+extern "C"
+{
+    EMSCRIPTEN_KEEPALIVE
+    unsigned char *getLastFaceCrop(int *width, int *height)
+    {
+#ifdef DEBUG_VISUALIZATION
+        if (lastFaceImage.empty())
+        {
+            *width = 0;
+            *height = 0;
+            return nullptr;
+        }
+
+        *width = lastFaceImage.cols;
+        *height = lastFaceImage.rows;
+
+        // Create a copy of the data to return to JavaScript
+        size_t bufferSize = lastFaceImage.cols * lastFaceImage.rows * 3;
+        unsigned char *buffer = (unsigned char *)malloc(bufferSize);
+        memcpy(buffer, lastFaceImage.data, bufferSize);
+
+        return buffer;
+#else
+        *width = 0;
+        *height = 0;
+        return nullptr;
+#endif
+    }
+}
+
+bool FaceLandmarkDetector::isSIMDEnabled()
+{
+#ifdef WITH_SIMD
+    return true;
+#else
+    return false;
+#endif
 }
 
 void FaceLandmarkDetector::setNumThreads(int threads)

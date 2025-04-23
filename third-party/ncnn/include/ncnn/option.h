@@ -25,7 +25,7 @@ class PipelineCache;
 #endif // NCNN_VULKAN
 
 class Allocator;
-class Option
+class NCNN_EXPORT Option
 {
 public:
     // default option
@@ -36,6 +36,14 @@ public:
     // intermediate blob will be recycled when enabled
     // enabled by default
     bool lightmode;
+
+    // use pack8 shader
+    bool use_shader_pack8;
+
+    // enable subgroup in shader
+    bool use_subgroup_ops;
+
+    bool use_reserved_0;
 
     // thread count
     // default value is the one returned by get_cpu_count()
@@ -67,13 +75,13 @@ public:
     int openmp_blocktime;
 
     // enable winograd convolution optimization
-    // improve convolution 3x3 stride1 performace, may consume more memory
+    // improve convolution 3x3 stride1 performance, may consume more memory
     // changes should be applied before loading network structure and weight
     // enabled by default
     bool use_winograd_convolution;
 
     // enable sgemm convolution optimization
-    // improve convolution 1x1 stride1 performace, may consume more memory
+    // improve convolution 1x1 stride1 performance, may consume more memory
     // changes should be applied before loading network structure and weight
     // enabled by default
     bool use_sgemm_convolution;
@@ -87,37 +95,67 @@ public:
     // enable vulkan compute
     bool use_vulkan_compute;
 
+    // enable bf16 data type for storage
+    // improve most operator performance on all arm devices, may consume more memory
+    bool use_bf16_storage;
+
     // enable options for gpu inference
     bool use_fp16_packed;
     bool use_fp16_storage;
     bool use_fp16_arithmetic;
+    bool use_int8_packed;
     bool use_int8_storage;
     bool use_int8_arithmetic;
 
     // enable simd-friendly packed memory layout
-    // improve all operator performace on all arm devices, will consume more memory
+    // improve all operator performance on all arm devices, will consume more memory
     // changes should be applied before loading network structure and weight
     // enabled by default
     bool use_packing_layout;
 
-    bool use_shader_pack8;
+    // the vulkan device
+    int vulkan_device_index;
 
-    // subgroup option
-    bool use_subgroup_basic;
-    bool use_subgroup_vote;
-    bool use_subgroup_ballot;
-    bool use_subgroup_shuffle;
+    bool use_reserved_1;
 
     // turn on for adreno
     bool use_image_storage;
+    bool use_tensor_storage;
 
-    // enable bf16 data type for storage
-    // improve most operator performace on all arm devices, may consume more memory
-    bool use_bf16_storage;
+    bool use_reserved_2;
 
-    // used for fp16 weight storage in AVX
-    // TODO drop this option
-    bool use_weight_fp16_storage;
+    // enable DAZ(Denormals-Are-Zero) and FTZ(Flush-To-Zero)
+    // default value is 3
+    // 0 = DAZ OFF, FTZ OFF
+    // 1 = DAZ ON , FTZ OFF
+    // 2 = DAZ OFF, FTZ ON
+    // 3 = DAZ ON,  FTZ ON
+    int flush_denormals;
+
+    bool use_local_pool_allocator;
+
+    // enable local memory optimization for gpu inference
+    bool use_shader_local_memory;
+
+    // enable cooperative matrix optimization for gpu inference
+    bool use_cooperative_matrix;
+
+    // more fine-grained control of winograd convolution
+    bool use_winograd23_convolution;
+    bool use_winograd43_convolution;
+    bool use_winograd63_convolution;
+
+    // this option is turned on for A53/A55 automatically
+    // but you can force this on/off if you wish
+    bool use_a53_a55_optimized_kernel;
+
+    // enable options for shared variables in gpu shader
+    bool use_fp16_uniform;
+    bool use_int8_uniform;
+
+    bool use_reserved_9;
+    bool use_reserved_10;
+    bool use_reserved_11;
 };
 
 } // namespace ncnn
