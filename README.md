@@ -217,4 +217,4 @@ For optimal performance:
 
 ## License
 
-[Specify your license here]
+MIT
