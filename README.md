@@ -1,4 +1,4 @@
-# Custom Face Landmark Detection WebAssembly Library
+# Face Landmark Detection WebAssembly Library
 
 A static library for detecting facial landmarks, compiled to WebAssembly for use in web applications. Supports multi-threading for improved performance.
 
@@ -7,7 +7,7 @@ A static library for detecting facial landmarks, compiled to WebAssembly for use
 ### Required
 - CMake 3.10+
 - C++17 compatible compiler
-- Emscripten SDK
+- Emscripten SDK (3+)
 - NCNN library for neural network inference (included as a third-party dependency)
 
 ## Third-Party Libraries
@@ -71,6 +71,32 @@ emcmake cmake ..
 emmake make
 ```
 
+## Installing the Library
+
+After building, you can install the library using:
+
+```bash
+# Build and install to system location (requires sudo)
+cmake --build . --target install
+
+# Or specify a custom install location
+cmake --build . --target install -- DESTDIR=/path/to/install/dir
+```
+
+The installation will include:
+- Library files (static library)
+- Header files
+- WASM/JS application files (if enabled)
+- Model files (if enabled)
+- CMake configuration files for easy integration with other CMake projects
+
+### Using the Installed Library in Other CMake Projects
+
+```cmake
+find_package(lmn_face_landmark REQUIRED)
+target_link_libraries(your_project PRIVATE lmn_face_landmark::lmn_face_landmark)
+```
+
 ## Model Files
 
 The library requires pre-trained model files in the `models/` directory:
@@ -101,6 +127,15 @@ This project uses Web Workers and SharedArrayBuffer for multi-threading support 
    - `Cross-Origin-Embedder-Policy: require-corp`
 
 Use the provided `serve.py` script to run a properly configured server.
+
+## Debugging Tools
+
+The library comes with several debugging tools to help with development:
+
+- **ROI Debug Visualizer** (`roi-debug.html`): Visualize the face detection region
+- **Model Input Debugger** (`model-debug.html`): View the preprocessing steps
+
+Access these tools by opening them in your browser from the `wasm-build` directory.
 
 ## Using the Library in Your Web Project
 
@@ -170,6 +205,15 @@ FaceLandmarkModule().then(module => {
     module.ccall('cleanup', null, [], []);
 });
 ```
+
+## Performance Considerations
+
+For optimal performance:
+
+- Enable SIMD: The library uses SIMD instructions when available
+- Enable threading: Multiple cores can significantly improve detection speed
+- Adjust processing resolution: Lower input sizes provide faster processing
+- Consider using asynchronous mode for a smoother UI experience
 
 ## License
 

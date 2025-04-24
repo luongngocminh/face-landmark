@@ -24,7 +24,7 @@ Makefile
 *.exe
 *.out
 *.app
-custom_face_landmark_test
+lnm_face_landmark_test
 
 # IDE files
 .vscode/

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(custom_face_landmark VERSION 0.1.0 LANGUAGES CXX)
+project(lnm_face_landmark VERSION 0.1.0 LANGUAGES CXX)
 
 # Ensure we're using Emscripten
 if(NOT EMSCRIPTEN)

@@ -15,13 +15,13 @@ emmake make -j$(nproc)
 # Copy web files to the build directory root for easier serving
 echo "Copying web files to build directory..."
 cp -r ../demo/wasm_app/web/* ./
-cp custom_face_landmark_wasm.js ./
-cp custom_face_landmark_wasm.wasm ./
-cp custom_face_landmark_wasm.worker.js ./
+cp lnm_face_landmark_wasm.js ./
+cp lnm_face_landmark_wasm.wasm ./
+cp lnm_face_landmark_wasm.worker.js ./
 
 # If there's a data file from preloading, make sure it's in the web root
-if [ -f "custom_face_landmark_wasm.data" ]; then
-    cp custom_face_landmark_wasm.data ./
+if [ -f "lnm_face_landmark_wasm.data" ]; then
+    cp lnm_face_landmark_wasm.data ./
 fi
 
 # Go back to the original directory
