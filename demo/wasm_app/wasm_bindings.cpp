@@ -4,17 +4,16 @@
 #include "face_landmark.h"
 #include <vector>
 #include <cstdint>
-#include <thread>
-#include <future>
-#include <mutex>
-
 #include <iostream>
+#include <thread>
+#include <atomic>
 
 // Forward declaration for the function defined in face_landmark.cpp
 extern "C" unsigned char* getLastFaceCrop(int* width, int* height);
 
 FaceLandmarkDetector* detector = nullptr;
 std::mutex detectorMutex;
+std::atomic<int> activeThreads(0);  // Track active threads
 
 extern "C" {
 
@@ -62,68 +61,6 @@ float* detectLandmarks(uint8_t* imageData, int width, int height, int* numPoints
     }
     
     return result;
-}
-
-// Async landmark detection (returns a promise ID)
-EMSCRIPTEN_KEEPALIVE
-int detectLandmarksAsync(uint8_t* imageData, int width, int height) {
-    static int nextPromiseId = 1;
-    int promiseId = nextPromiseId++;
-    
-    // Create a copy of the image data since the original might be freed before the thread completes
-    uint8_t* imageCopy = (uint8_t*)malloc(width * height * 4);
-    memcpy(imageCopy, imageData, width * height * 4);
-    
-    // Start a new thread for detection
-    std::thread([promiseId, imageCopy, width, height]() {
-        // Create image vector from copied data
-        std::vector<unsigned char> imageVector(imageCopy, imageCopy + (width * height * 4));
-        
-        // Get landmarks (with mutex protection)
-        std::vector<float> landmarks;
-        {
-            std::lock_guard<std::mutex> lock(detectorMutex);
-            if (detector != nullptr) {
-                landmarks = detector->detectLandmarks(imageVector, width, height);
-            }
-        }
-        
-        // Free the copied image data
-        free(imageCopy);
-        
-        // Store results in a format accessible from JavaScript
-        int numPoints = landmarks.size();
-        float* result = nullptr;
-        
-        if (numPoints > 0) {
-            result = (float*)malloc(numPoints * sizeof(float));
-            for (int i = 0; i < numPoints; i++) {
-                result[i] = landmarks[i];
-            }
-        }
-        
-        // Call JavaScript callback with the promise ID and results
-        // Use a more direct approach to call the JS function
-        EM_ASM({
-            try {
-                if (typeof Module !== 'undefined' && typeof Module.onLandmarkDetectionComplete === 'function') {
-                    Module.onLandmarkDetectionComplete($0, $1, $2);
-                } else if (typeof self !== 'undefined' && typeof self._landmarkDetectionComplete === 'function') {
-                    self._landmarkDetectionComplete($0, $1, $2);
-                } else if (typeof window !== 'undefined' && typeof window._landmarkDetectionComplete === 'function') {
-                    window._landmarkDetectionComplete($0, $1, $2);
-                } else {
-                    console.error("Error: Cannot find landmark detection callback function in any scope");
-                }
-            } catch (e) {
-                console.error("Error calling landmark detection callback:", e);
-            }
-        }, promiseId, result, numPoints);
-        
-        // Note: JavaScript is responsible for freeing result using freeMemory
-    }).detach();
-    
-    return promiseId;
 }
 
 // Free memory
@@ -175,6 +112,22 @@ int isSIMDEnabled() {
     return detector->isSIMDEnabled() ? 1 : 0;
 }
 
+// Get current number of active threads
+EMSCRIPTEN_KEEPALIVE
+int getActiveThreads() {
+    return activeThreads.load();
+}
+
+// Get current pthread pool size
+EMSCRIPTEN_KEEPALIVE
+int getPthreadPoolSize() {
+    #ifdef PTHREAD_POOL_SIZE
+    return PTHREAD_POOL_SIZE;
+    #else
+    return 8; // Default to our new size
+    #endif
+}
+
 } // extern "C"
 
 // Wrapper functions for use with Emscripten bindings
@@ -209,6 +162,14 @@ unsigned char* getFaceCropForDebugWrapper(int* width, int* height) {
     #endif
 }
 
+int getActiveThreadsWrapper() {
+    return getActiveThreads();
+}
+
+int getPthreadPoolSizeWrapper() {
+    return getPthreadPoolSize();
+}
+
 // Emscripten bindings
 EMSCRIPTEN_BINDINGS(face_landmark_module) {
     emscripten::function("initialize", &initializeWrapper);
@@ -216,6 +177,8 @@ EMSCRIPTEN_BINDINGS(face_landmark_module) {
     emscripten::function("cleanup", &cleanupWrapper);
     emscripten::function("isThreadingSupported", &isThreadingSupportedWrapper);
     emscripten::function("getNumHardwareThreads", &getNumHardwareThreadsWrapper);
+    emscripten::function("getActiveThreads", &getActiveThreadsWrapper);
+    emscripten::function("getPthreadPoolSize", &getPthreadPoolSizeWrapper);
     
     // Fix the raw pointer binding by using allow_raw_pointers policy
     emscripten::function("getFaceCropForDebug", 

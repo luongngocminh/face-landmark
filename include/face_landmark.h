@@ -3,20 +3,11 @@
 
 #include <vector>
 #include <string>
-#include <mutex>
-#include <thread>
-
-// Include NCNN headers
-#include "net.h"
-#include "layer.h"
-#include "mat.h"
-#include "simpleocv.h"
-
-// Always include Emscripten since we're targeting web only
-#include <emscripten/emscripten.h>
+#include <memory>
 
 // Define attributes properly for different contexts
 #ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
 #define EXPORT EMSCRIPTEN_KEEPALIVE
 #else
 #define EXPORT
@@ -41,16 +32,19 @@ class FaceLandmarkDetector {
 public:
     EXPORT FaceLandmarkDetector();
     EXPORT ~FaceLandmarkDetector();
+    
+    // Prevent copying and moving
+    FaceLandmarkDetector(const FaceLandmarkDetector&) = delete;
+    FaceLandmarkDetector& operator=(const FaceLandmarkDetector&) = delete;
+    FaceLandmarkDetector(FaceLandmarkDetector&&) = delete;
+    FaceLandmarkDetector& operator=(FaceLandmarkDetector&&) = delete;
 
     EXPORT bool initialize();
     EXPORT bool loadModel(const std::string& modelPath);
     
     // Process raw image data (RGBA format)
     EXPORT std::vector<float> detectLandmarks(const std::vector<unsigned char>& imageData, int width, int height);
-    
-    // Process NCNN Mat directly
-    EXPORT std::vector<float> detectLandmarksFromMat(const ncnn::Mat& image);
-    
+        
     // Thread-safe methods
     EXPORT void setNumThreads(int numThreads);
     EXPORT int getNumThreads() const;
@@ -59,26 +53,11 @@ public:
     EXPORT bool isSIMDEnabled();
 
 private:
-    // NCNN-specific processing
-    ncnn::Mat preprocessImage(const ncnn::Mat& image);
-    std::vector<ROI> extractROI(const ncnn::Mat& image);
-    std::vector<float> extractLandmarks(const cv::Mat& face, const ROI& roi);
+    // PIMPL idiom - forward declaration of implementation class
+    class Impl;
     
-    // Internal implementation details
-    void* modelHandle;
-    bool isInitialized;
-    int numThreads;
-    mutable std::mutex mutex;
-    
-    // NCNN-specific models
-    ncnn::Net faceDetector;
-    ncnn::Net landmarkDetector;
-    
-    // Model parameters
-    int faceDetectorWidth;
-    int faceDetectorHeight;
-    int landmarkDetectorWidth;
-    int landmarkDetectorHeight;
+    // Use unique_ptr to manage the implementation object
+    std::unique_ptr<Impl> pImpl;
 };
 
 #endif // FACE_LANDMARK_H

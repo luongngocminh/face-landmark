@@ -371,8 +371,8 @@
             
             const constraints = {
                 video: {
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
+                    width: { ideal: 960 },
+                    height: { ideal: 540 }
                 }
             };
             
@@ -382,10 +382,21 @@
                     
                     // Wait for video to load metadata to set canvas size
                     video.onloadedmetadata = () => {
-                        videoOverlay.width = video.videoWidth;
-                        videoOverlay.height = video.videoHeight;
+                        // Update canvas size while maintaining aspect ratio of video
+                        const videoRatio = video.videoWidth / video.videoHeight;
+                        
+                        if (videoRatio > 4/3) {
+                            // Wider aspect ratio
+                            videoOverlay.width = 640;
+                            videoOverlay.height = Math.round(640 / videoRatio);
+                        } else {
+                            // Taller or square aspect ratio
+                            videoOverlay.height = 480;
+                            videoOverlay.width = Math.round(480 * videoRatio);
+                        }
+                        
                         document.getElementById('cameraStats').textContent = 
-                            `Resolution: ${video.videoWidth} x ${video.videoHeight}`;
+                            `Resolution: ${video.videoWidth} x ${video.videoHeight} (Canvas: ${videoOverlay.width} x ${videoOverlay.height})`;
                     };
                     
                     document.getElementById('startBtn').disabled = true;
@@ -598,16 +609,34 @@
                 videoCtx.fillRect(0, 0, videoOverlay.width, videoOverlay.height);
             }
             
-            // Calculate scale factors
-            const scaleX = videoOverlay.width / sourceWidth;
-            const scaleY = videoOverlay.height / sourceHeight;
+            // Calculate proper aspect ratio-preserving scaling
+            const canvasRatio = videoOverlay.width / videoOverlay.height;
+            const sourceRatio = sourceWidth / sourceHeight;
+            
+            let targetWidth, targetHeight, offsetX = 0, offsetY = 0;
+            
+            if (sourceRatio > canvasRatio) {
+                // Source is wider than canvas
+                targetWidth = videoOverlay.width;
+                targetHeight = targetWidth / sourceRatio;
+                offsetY = (videoOverlay.height - targetHeight) / 2;
+            } else {
+                // Source is taller than canvas
+                targetHeight = videoOverlay.height;
+                targetWidth = targetHeight * sourceRatio;
+                offsetX = (videoOverlay.width - targetWidth) / 2;
+            }
+            
+            // Calculate scale factors with aspect ratio preservation
+            const scaleX = targetWidth / sourceWidth;
+            const scaleY = targetHeight / sourceHeight;
             
             // Draw ROI box if enabled and we have ROI info (first 4 values are ROI coordinates)
             if (showROIBox && landmarks.length >= 4) {
-                const x1 = landmarks[0] * scaleX;
-                const y1 = landmarks[1] * scaleY;
-                const x2 = landmarks[2] * scaleX;
-                const y2 = landmarks[3] * scaleY;
+                const x1 = landmarks[0] * scaleX + offsetX;
+                const y1 = landmarks[1] * scaleY + offsetY;
+                const x2 = landmarks[2] * scaleX + offsetX;
+                const y2 = landmarks[3] * scaleY + offsetY;
                 
                 videoCtx.strokeStyle = 'green';
                 videoCtx.lineWidth = 2;
@@ -625,8 +654,8 @@
             if (showLandmarks) {
                 // Skip ROI values (first 4)
                 for (let i = 4; i < landmarks.length; i += 2) {
-                    const x = landmarks[i] * scaleX;
-                    const y = landmarks[i + 1] * scaleY;
+                    const x = landmarks[i] * scaleX + offsetX;
+                    const y = landmarks[i + 1] * scaleY + offsetY;
                     
                     // Skip invalid coordinates
                     if (isNaN(x) || isNaN(y)) continue;
@@ -653,6 +682,13 @@
                         videoCtx.fill();
                     }
                 }
+            }
+            
+            // Draw a border to indicate the adjusted visible area
+            if (sourceRatio != canvasRatio) {
+                videoCtx.strokeStyle = 'rgba(200, 200, 200, 0.5)';
+                videoCtx.lineWidth = 1;
+                videoCtx.strokeRect(offsetX, offsetY, targetWidth, targetHeight);
             }
         }
         
