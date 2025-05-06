@@ -36,3 +36,5 @@ lnm_face_landmark_test
 .DS_Store
 Thumbs.db
 
+# Emscripten 
+/emsdk 

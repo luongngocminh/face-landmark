@@ -24,8 +24,9 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wunknown-pragmas")
 # Include directories for the main project
 include_directories(include)
 
-# Include the third-party NCNN library headers
+# Include the third-party NCNN and Eigen library headers
 include_directories(${CMAKE_SOURCE_DIR}/third-party/ncnn/include/ncnn)
+include_directories(${CMAKE_SOURCE_DIR}/third-party/eigen)
 
 # Define NCNN library for Emscripten
 add_library(ncnn STATIC IMPORTED)
@@ -44,6 +45,7 @@ add_definitions(-DWITH_SIMD)
 set(LIB_SOURCES
     lib/face_landmark.cpp
     lib/face_landmark_impl.cpp
+    lib/landmark_tracker.cpp
 )
 
 # Build the static library

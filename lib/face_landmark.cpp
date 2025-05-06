@@ -16,7 +16,8 @@ FaceLandmarkDetector::Impl::Impl()
       faceDetectorWidth(320),
       faceDetectorHeight(256),
       landmarkDetectorWidth(112),
-      landmarkDetectorHeight(112)
+      landmarkDetectorHeight(112),
+      landmarkTracker(std::make_unique<LandmarkTracker>(106))
 {
     // Default to using all available cores if possible
     int availableThreads = std::thread::hardware_concurrency();
@@ -60,8 +61,8 @@ bool FaceLandmarkDetector::Impl::loadModel(const std::string &modelPath) {
 
     try {
         // Load face detection model
-        std::string faceDetectionModelPath = modelPath + "/yoloface-500k.bin";
-        std::string faceDetectionParamPath = modelPath + "/yoloface-500k.param";
+        std::string faceDetectionModelPath = modelPath + "/yolo-fastest-opt.bin";
+        std::string faceDetectionParamPath = modelPath + "/yolo-fastest-opt.param";
 
         // Check if model files exist
         if (!fileExists(faceDetectionParamPath) || !fileExists(faceDetectionModelPath)) {
@@ -118,12 +119,20 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarks(const std::vector
     std::vector<float> landmarks = detectLandmarksFromMat(in);
 
     // Include ROI information at the beginning of landmarks for debugging
+    std::vector<float> result;
     if (!landmarks.empty()) {
         std::vector<ROI> rois = extractROI(in);
         if (!rois.empty()) {
+            // Apply Kalman filtering to stabilize landmarks if enabled
+            std::vector<float> stabilizedLandmarks;
+            if (landmarkTracker && landmarks.size() >= 106*2) { // Ensure we have at least 106 landmarks (x,y pairs)
+                stabilizedLandmarks = landmarkTracker->update(landmarks);
+            } else {
+                stabilizedLandmarks = landmarks;
+            }
+
             // Add ROI information at the beginning of landmarks
-            std::vector<float> result;
-            result.reserve(landmarks.size() + 4); // ROI info (4 values) + landmarks
+            result.reserve(stabilizedLandmarks.size() + 4); // ROI info (4 values) + landmarks
 
             // Add ROI coordinates
             result.push_back(rois[0].x1);
@@ -131,13 +140,18 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarks(const std::vector
             result.push_back(rois[0].x2);
             result.push_back(rois[0].y2);
 
-            // Add the landmarks
-            result.insert(result.end(), landmarks.begin(), landmarks.end());
+            // Add the stabilized landmarks
+            result.insert(result.end(), stabilizedLandmarks.begin(), stabilizedLandmarks.end());
             return result;
+        } else {
+            // No ROIs but we have landmarks - still stabilize
+            if (landmarkTracker && landmarks.size() >= 106*2) {
+                return landmarkTracker->update(landmarks);
+            }
         }
     }
 
-    return landmarks;
+    return landmarks.empty() ? landmarks : result;
 }
 
 bool FaceLandmarkDetector::Impl::isSIMDEnabled() const {
@@ -157,6 +171,27 @@ void FaceLandmarkDetector::Impl::setNumThreads(int threads) {
 
 int FaceLandmarkDetector::Impl::getNumThreads() const {
     return numThreads;
+}
+
+// Stabilization methods implementation
+void FaceLandmarkDetector::Impl::setStabilizationEnabled(bool enabled) {
+    if (landmarkTracker) {
+        landmarkTracker->setStabilizationEnabled(enabled);
+    }
+}
+
+bool FaceLandmarkDetector::Impl::isStabilizationEnabled() const {
+    return landmarkTracker ? landmarkTracker->isStabilizationEnabled() : false;
+}
+
+void FaceLandmarkDetector::Impl::setTemporalSmoothing(float factor) {
+    if (landmarkTracker) {
+        landmarkTracker->setTemporalSmoothing(factor);
+    }
+}
+
+float FaceLandmarkDetector::Impl::getTemporalSmoothing() const {
+    return landmarkTracker ? landmarkTracker->getTemporalSmoothing() : 0.8f;
 }
 
 // Now implement the public-facing methods that delegate to the Impl
@@ -187,6 +222,22 @@ int FaceLandmarkDetector::getNumThreads() const {
 
 bool FaceLandmarkDetector::isSIMDEnabled() {
     return pImpl->isSIMDEnabled();
+}
+
+void FaceLandmarkDetector::setStabilizationEnabled(bool enabled) {
+    pImpl->setStabilizationEnabled(enabled);
+}
+
+bool FaceLandmarkDetector::isStabilizationEnabled() const {
+    return pImpl->isStabilizationEnabled();
+}
+
+void FaceLandmarkDetector::setTemporalSmoothing(float factor) {
+    pImpl->setTemporalSmoothing(factor);
+}
+
+float FaceLandmarkDetector::getTemporalSmoothing() const {
+    return pImpl->getTemporalSmoothing();
 }
 
 // New method to get the debugged face crop for visualization

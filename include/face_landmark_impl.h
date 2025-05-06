@@ -2,6 +2,7 @@
 #define FACE_LANDMARK_IMPL_H
 
 #include "face_landmark.h"
+#include "landmark_tracker.h"
 #include <string>
 #include <vector>
 #include <mutex>
@@ -25,6 +26,12 @@ public:
     int getNumThreads() const;
     bool isSIMDEnabled() const;
     
+    // Landmark stabilization methods
+    void setStabilizationEnabled(bool enabled);
+    bool isStabilizationEnabled() const;
+    void setTemporalSmoothing(float factor);
+    float getTemporalSmoothing() const;
+    
     // Private implementation details
 private:
     ncnn::Mat preprocessImage(const ncnn::Mat& image);
@@ -47,6 +54,9 @@ private:
     int faceDetectorHeight;
     int landmarkDetectorWidth;
     int landmarkDetectorHeight;
+    
+    // Landmark tracker for stabilization
+    std::unique_ptr<LandmarkTracker> landmarkTracker;
 };
 
 #endif // FACE_LANDMARK_IMPL_H
