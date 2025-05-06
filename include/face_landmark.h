@@ -51,6 +51,12 @@ public:
 
     // Added method to check if SIMD is enabled
     EXPORT bool isSIMDEnabled();
+    
+    // Landmark stabilization control
+    EXPORT void setStabilizationEnabled(bool enabled);
+    EXPORT bool isStabilizationEnabled() const;
+    EXPORT void setTemporalSmoothing(float factor);
+    EXPORT float getTemporalSmoothing() const;
 
 private:
     // PIMPL idiom - forward declaration of implementation class
