@@ -8,7 +8,6 @@
 
 // Forward declarations
 class KalmanTracker;
-class HungarianAlgorithm;
 
 /**
  * @brief LandmarkTracker class that stabilizes facial landmarks across frames
