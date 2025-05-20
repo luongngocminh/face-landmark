@@ -3,8 +3,6 @@
 
 #include <vector>
 #include <memory>
-#include <Eigen/Dense>
-#include <unordered_map>
 
 // Forward declarations
 class KalmanTracker;
