@@ -38,6 +38,9 @@ private:
     std::vector<ROI> extractROI(const ncnn::Mat& image);
     std::vector<float> extractLandmarks(const cv::Mat& face, const ROI& roi, const int originalWidth, const int originalHeight);
     std::vector<float> detectLandmarksFromMat(const ncnn::Mat& image);
+    
+    // Helper function to calculate ROI area
+    float calculateROIArea(const ROI& roi) const;
 
     // NCNN-specific models
     ncnn::Net faceDetector;
