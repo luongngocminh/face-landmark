@@ -2,6 +2,7 @@
 #include <iostream>
 #include <mutex>
 #include <fstream>
+#include <algorithm> // Add this for std::sort
 
 // Include NCNN headers
 #include "net.h"
@@ -48,6 +49,8 @@ std::vector<ROI> FaceLandmarkDetector::Impl::extractROI(const ncnn::Mat &image) 
     ex.input("data", processedImage);
     ncnn::Mat faceDetectionOutput;
     ex.extract("output", faceDetectionOutput);
+
+    std::vector<ROI> candidateROIs; // Store all candidate ROIs for sorting
 
     for (int i = 0; i < faceDetectionOutput.h; i++) {
         std::cout << "Face detected: " << i << std::endl;
@@ -97,13 +100,29 @@ std::vector<ROI> FaceLandmarkDetector::Impl::extractROI(const ncnn::Mat &image) 
             roi.score = score;
             roi.label = label;
 
-            rois.push_back(roi);
+            candidateROIs.push_back(roi);
         }
         else {
             std::cout << "Face too small for landmark detection" << std::endl;
         }
     }
-    std::cout << "Number of faces detected: " << rois.size() << std::endl;
+
+    // Sort ROIs by area (largest first) for stability
+    if (!candidateROIs.empty()) {
+        std::sort(candidateROIs.begin(), candidateROIs.end(), [this](const ROI& a, const ROI& b) {
+            float areaA = calculateROIArea(a);
+            float areaB = calculateROIArea(b);
+            return areaA > areaB; // Sort in descending order (largest first)
+        });
+
+        // Only return the largest face for stability
+        rois.push_back(candidateROIs[0]);
+        
+        float largestArea = calculateROIArea(candidateROIs[0]);
+        std::cout << "Selected largest face with area: " << largestArea << std::endl;
+    }
+
+    std::cout << "Number of faces detected: " << candidateROIs.size() << ", using largest: " << rois.size() << std::endl;
 
     return rois;
 }
@@ -117,7 +136,7 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarksFromMat(const ncnn
     }
 
     try {
-        // Extract ROIs for face detection
+        // Extract ROIs for face detection (only returns the largest face)
         std::vector<ROI> rois = extractROI(image);
         if (rois.empty()) {
             std::cerr << "No faces detected." << std::endl;
@@ -132,8 +151,11 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarksFromMat(const ncnn
             return landmarks;
         }
 
-        // Get first detected face
+        // Get the largest detected face (which is the first and only one in the vector)
         const ROI &roi = rois[0];
+        
+        float faceArea = calculateROIArea(roi);
+        std::cout << "Processing largest face with area: " << faceArea << " and score: " << roi.score << std::endl;
 
         // Crop the face region
         int x1 = static_cast<int>(roi.x1);
@@ -150,7 +172,7 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarksFromMat(const ncnn
             return landmarks;
         }
 
-        // Extract landmarks for the face
+        // Extract landmarks for the largest face
         unsigned char *pixels = new unsigned char[image.w * image.h * 3]; // RGB format = 3 channels
         image.to_pixels(pixels, ncnn::Mat::PIXEL_RGB);                    // Consistent RGB format
         cv::Mat rgb = cv::Mat(image.h, image.w, CV_8UC3, pixels);
@@ -166,53 +188,6 @@ std::vector<float> FaceLandmarkDetector::Impl::detectLandmarksFromMat(const ncnn
         std::cerr << "Error in landmark detection: " << e.what() << std::endl;
         return landmarks;
     }
-}
-
-// Preprocess image implementation
-ncnn::Mat FaceLandmarkDetector::Impl::preprocessImage(const ncnn::Mat &image) {
-    const int target_size = 320;
-
-    // letterbox pad to multiple of 32
-    int w = image.w;
-    int h = image.h;
-    float scale = 1.f;
-    if (w > h) {
-        scale = (float)target_size / w;
-        w = target_size;
-        h = h * scale;
-    }
-    else {
-        scale = (float)target_size / h;
-        h = target_size;
-        w = w * scale;
-    }
-
-    // First convert to pixels, then resize
-    unsigned char *pixels = new unsigned char[image.w * image.h * 3]; // RGB format = 3 channels
-    image.to_pixels(pixels, ncnn::Mat::PIXEL_RGB);                    // Consistent RGB format
-
-    // Now resize from the pixel data
-    ncnn::Mat in = ncnn::Mat::from_pixels_resize(pixels, ncnn::Mat::PIXEL_RGB, // Consistent RGB format
-                                                 image.w, image.h, w, h);
-
-    // Free the temporary pixel buffer
-    delete[] pixels;
-
-    // Apply proper padding to make dimensions multiple of 32
-    int wpad = (w + 31) / 32 * 32 - w;
-    int hpad = (h + 31) / 32 * 32 - h;
-    ncnn::Mat in_pad;
-
-    // Apply the padding using NCNN's function (ensures the padding is correct)
-    ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2,
-                           ncnn::BORDER_CONSTANT, 114.f);
-
-    // Normalize image for face detection
-    const float mean_vals[3] = {0.f, 0.f, 0.f};
-    const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
-    in_pad.substract_mean_normalize(mean_vals, norm_vals);
-
-    return in_pad;
 }
 
 // Extract landmarks implementation
@@ -358,4 +333,56 @@ std::vector<float> FaceLandmarkDetector::Impl::extractLandmarks(const cv::Mat &f
 
         return landmarks;
     }
+}
+
+// Helper function to calculate ROI area
+float FaceLandmarkDetector::Impl::calculateROIArea(const ROI& roi) const {
+    return (roi.x2 - roi.x1) * (roi.y2 - roi.y1);
+}
+
+// Preprocess image implementation
+ncnn::Mat FaceLandmarkDetector::Impl::preprocessImage(const ncnn::Mat &image) {
+    const int target_size = 320;
+
+    // letterbox pad to multiple of 32
+    int w = image.w;
+    int h = image.h;
+    float scale = 1.f;
+    if (w > h) {
+        scale = (float)target_size / w;
+        w = target_size;
+        h = h * scale;
+    }
+    else {
+        scale = (float)target_size / h;
+        h = target_size;
+        w = w * scale;
+    }
+
+    // First convert to pixels, then resize
+    unsigned char *pixels = new unsigned char[image.w * image.h * 3]; // RGB format = 3 channels
+    image.to_pixels(pixels, ncnn::Mat::PIXEL_RGB);                    // Consistent RGB format
+
+    // Now resize from the pixel data
+    ncnn::Mat in = ncnn::Mat::from_pixels_resize(pixels, ncnn::Mat::PIXEL_RGB, // Consistent RGB format
+                                                 image.w, image.h, w, h);
+
+    // Free the temporary pixel buffer
+    delete[] pixels;
+
+    // Apply proper padding to make dimensions multiple of 32
+    int wpad = (w + 31) / 32 * 32 - w;
+    int hpad = (h + 31) / 32 * 32 - h;
+    ncnn::Mat in_pad;
+
+    // Apply the padding using NCNN's function (ensures the padding is correct)
+    ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2,
+                           ncnn::BORDER_CONSTANT, 114.f);
+
+    // Normalize image for face detection
+    const float mean_vals[3] = {0.f, 0.f, 0.f};
+    const float norm_vals[3] = {1 / 255.f, 1 / 255.f, 1 / 255.f};
+    in_pad.substract_mean_normalize(mean_vals, norm_vals);
+
+    return in_pad;
 }

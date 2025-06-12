@@ -4,7 +4,7 @@ import socketserver
 import os
 import sys
 
-PORT = 8000
+PORT = 1989
 
 # Minimal handler with required WASM threading headers
 class WASMHandler(http.server.SimpleHTTPRequestHandler):
